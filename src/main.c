@@ -7,9 +7,11 @@
 #include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include "discrete_coordinate.h"
 #include "hero_control.h"
 #include "map.h"
+#include "solver.h"
 #include "globals.h"
 
 int main(void)
@@ -67,23 +69,32 @@ int main(void)
                 command_len = 0;
                 command_buffer[0] = '\0';
             } else if (IsKeyPressed(KEY_ENTER) || IsKeyPressed(KEY_KP_ENTER)) {
-                bool format_ok = command_len >= 2 && command_buffer[0] == '/';
-                for (int i = 1; i < command_len && format_ok; ++i) {
-                    if (!isdigit((unsigned char)command_buffer[i])) {
-                        format_ok = false;
-                    }
-                }
-
-                if (!format_ok) {
-                    snprintf(hint_text, sizeof(hint_text), "syntax error");
-                    hint_timer = 2.0f;
-                } else {
-                    int level = atoi(command_buffer + 1);
-                    if (level > 0 && level_file_exists(level)) {
-                        map_load_level(world, level);
-                    } else {
-                        snprintf(hint_text, sizeof(hint_text), "level not found");
+                if (strcmp(command_buffer, "/solve") == 0) {
+                    solver_start(world, 1000000);
+                    if (solver_status() == SOLVER_ERROR) {
+                        snprintf(hint_text, sizeof(hint_text), "solve error");
                         hint_timer = 2.0f;
+                    }
+                } else {
+                    bool format_ok = command_len >= 2 && command_buffer[0] == '/';
+                    for (int i = 1; i < command_len && format_ok; ++i) {
+                        if (!isdigit((unsigned char)command_buffer[i])) {
+                            format_ok = false;
+                        }
+                    }
+
+                    if (!format_ok) {
+                        snprintf(hint_text, sizeof(hint_text), "syntax error");
+                        hint_timer = 2.0f;
+                    } else {
+                        int level = atoi(command_buffer + 1);
+                        if (level > 0 && level_file_exists(level)) {
+                            solver_reset();
+                            map_load_level(world, level);
+                        } else {
+                            snprintf(hint_text, sizeof(hint_text), "level not found");
+                            hint_timer = 2.0f;
+                        }
                     }
                 }
 
@@ -93,8 +104,25 @@ int main(void)
             }
         }
 
-        if (!command_visible) {
+        if (!command_visible && solver_status() != SOLVER_RUNNING) {
             HeroControlSystem(world);
+        }
+
+        if (solver_status() == SOLVER_RUNNING) {
+            solver_update(1000);
+            if (solver_status() == SOLVER_TRUE) {
+                snprintf(hint_text, sizeof(hint_text), "true");
+                hint_timer = 3.0f;
+            } else if (solver_status() == SOLVER_FALSE) {
+                snprintf(hint_text, sizeof(hint_text), "false");
+                hint_timer = 3.0f;
+            } else if (solver_status() == SOLVER_REACH_LIMIT) {
+                snprintf(hint_text, sizeof(hint_text), "reach limit");
+                hint_timer = 3.0f;
+            } else if (solver_status() == SOLVER_ERROR) {
+                snprintf(hint_text, sizeof(hint_text), "solve error");
+                hint_timer = 3.0f;
+            }
         }
 
         DiscreteCoordinateSystem(world);
@@ -118,6 +146,17 @@ int main(void)
             DrawRectangle(16, 16, 300, 36, Fade(BLACK, 0.7f));
             DrawText(command_buffer, 24, 24, 20, RAYWHITE);
         }
+        if (solver_status() == SOLVER_RUNNING) {
+            char solving_text[128];
+            snprintf(
+                solving_text,
+                sizeof(solving_text),
+                "solving... time=%.2fs paths=%d",
+                solver_elapsed(),
+                solver_searched_paths());
+            DrawRectangle(16, 96, 420, 28, Fade(BLACK, 0.6f));
+            DrawText(solving_text, 24, 102, 18, RAYWHITE);
+        }
         if (hint_timer > 0.0f) {
             DrawRectangle(16, 56, 220, 28, Fade(BLACK, 0.6f));
             DrawText(hint_text, 24, 62, 18, RAYWHITE);
@@ -126,6 +165,7 @@ int main(void)
         EndDrawing();
     }
 
+    solver_reset();
     miecs_world_destroy(world);
     CloseWindow();
     return 0;
