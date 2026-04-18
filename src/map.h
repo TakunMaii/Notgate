@@ -1158,9 +1158,32 @@ void map_load(miecs_world *world, const char *file)
         map_dynamic_activated = NULL;
     }
 
-    int width, height;
-    if (fscanf(f, "%d %d\n", &width, &height) != 2) {
-        fprintf(stderr, "Failed to read map dimensions from file: %s\n", file);
+    int width = 0;
+    int height = 0;
+    int current_width = 0;
+    int c;
+    while ((c = fgetc(f)) != EOF) {
+        if (c == '\r') {
+            continue;
+        }
+        if (c == '\n') {
+            if (current_width > width) {
+                width = current_width;
+            }
+            height++;
+            current_width = 0;
+        } else {
+            current_width++;
+        }
+    }
+    if (current_width > 0) {
+        if (current_width > width) {
+            width = current_width;
+        }
+        height++;
+    }
+    if (width <= 0 || height <= 0) {
+        fprintf(stderr, "Failed to read map content from file: %s\n", file);
         fclose(f);
         return;
     }
@@ -1197,65 +1220,91 @@ void map_load(miecs_world *world, const char *file)
         map_static_tiles[idx] = STATIC_TILE_EMPTY;
     }
 
-    for (int y = height - 1; y >= 0; --y) {
-        for (int x = 0; x < width; ++x) {
-            char tile;
-            if (fscanf(f, "%c", &tile) != 1) {
-                fprintf(stderr, "Failed to read tile at (%d, %d) from file: %s\n", x, y, file);
+    rewind(f);
+    int x = 0;
+    int y = 0;
+    while ((c = fgetc(f)) != EOF && y < height) {
+        if (c == '\r') {
+            continue;
+        }
+        if (c == '\n') {
+            while (x < width) {
+                map_static_tiles[map_index(x, y)] = STATIC_TILE_EMPTY;
+                x++;
+            }
+            y++;
+            x = 0;
+            continue;
+        }
+
+        if (x >= width) {
+            continue;
+        }
+
+        char tile = (char)c;
+        int idx = map_index(x, y);
+        switch (tile) {
+            case ' ': { map_static_tiles[idx] = STATIC_TILE_EMPTY; } break;
+            case '#': {
+                map_static_tiles[idx] = STATIC_TILE_WALL;
+                map_static_entities[idx] = wall(world, x, y);
+            } break;
+            case '@': {
+                map_static_tiles[idx] = STATIC_TILE_EMPTY;
+                hero(world, x, y);
+            } break;
+            case 'o': {
+                map_static_tiles[idx] = STATIC_TILE_EMPTY;
+                dynamic_unit(world, x, y, DYNAMIC_TILE_BOX);
+            } break;
+            case 'P': {
+                map_static_tiles[idx] = STATIC_TILE_PORTAL;
+                map_static_entities[idx] = portal(world, x, y);
+            } break;
+            case 's': {
+                map_static_tiles[idx] = STATIC_TILE_EMPTY;
+                dynamic_unit(world, x, y, DYNAMIC_TILE_SIGNAL_SOURCE);
+            } break;
+            case 'r': {
+                map_static_tiles[idx] = STATIC_TILE_EMPTY;
+                dynamic_unit(world, x, y, DYNAMIC_TILE_REPEATER);
+            } break;
+            case 'n': {
+                map_static_tiles[idx] = STATIC_TILE_EMPTY;
+                dynamic_unit(world, x, y, DYNAMIC_TILE_NOT_SIGNAL);
+            } break;
+            case 'S': {
+                map_static_tiles[idx] = STATIC_TILE_FIXED_SIGNAL_SOURCE;
+                map_static_entities[idx] = fixed_signal_source(world, x, y);
+            } break;
+            case 'R': {
+                map_static_tiles[idx] = STATIC_TILE_FIXED_REPEATER;
+                map_static_entities[idx] = fixed_repeater(world, x, y);
+            } break;
+            case 'N': {
+                map_static_tiles[idx] = STATIC_TILE_FIXED_NOT_SIGNAL;
+                map_static_entities[idx] = fixed_not_signal(world, x, y);
+            } break;
+            default: {
+                fprintf(stderr, "Unknown tile '%c' at (%d, %d) in file: %s\n", tile, x, y, file);
                 fclose(f);
                 return;
             }
-            int idx = map_index(x, y);
-            switch (tile) {
-                case '\n':
-                case '\r': { x--; continue; }
-                case ' ': { map_static_tiles[idx] = STATIC_TILE_EMPTY; } break;
-                case '#': {
-                    map_static_tiles[idx] = STATIC_TILE_WALL;
-                    map_static_entities[idx] = wall(world, x, y);
-                } break;
-                case '@': {
-                    map_static_tiles[idx] = STATIC_TILE_EMPTY;
-                    hero(world, x, y);
-                } break;
-                case 'o': {
-                    map_static_tiles[idx] = STATIC_TILE_EMPTY;
-                    dynamic_unit(world, x, y, DYNAMIC_TILE_BOX);
-                } break;
-                case 'P': {
-                    map_static_tiles[idx] = STATIC_TILE_PORTAL;
-                    map_static_entities[idx] = portal(world, x, y);
-                } break;
-                case 's': {
-                    map_static_tiles[idx] = STATIC_TILE_EMPTY;
-                    dynamic_unit(world, x, y, DYNAMIC_TILE_SIGNAL_SOURCE);
-                } break;
-                case 'r': {
-                    map_static_tiles[idx] = STATIC_TILE_EMPTY;
-                    dynamic_unit(world, x, y, DYNAMIC_TILE_REPEATER);
-                } break;
-                case 'n': {
-                    map_static_tiles[idx] = STATIC_TILE_EMPTY;
-                    dynamic_unit(world, x, y, DYNAMIC_TILE_NOT_SIGNAL);
-                } break;
-                case 'S': {
-                    map_static_tiles[idx] = STATIC_TILE_FIXED_SIGNAL_SOURCE;
-                    map_static_entities[idx] = fixed_signal_source(world, x, y);
-                } break;
-                case 'R': {
-                    map_static_tiles[idx] = STATIC_TILE_FIXED_REPEATER;
-                    map_static_entities[idx] = fixed_repeater(world, x, y);
-                } break;
-                case 'N': {
-                    map_static_tiles[idx] = STATIC_TILE_FIXED_NOT_SIGNAL;
-                    map_static_entities[idx] = fixed_not_signal(world, x, y);
-                } break;
-                default: {
-                    fprintf(stderr, "Unknown tile '%c' at (%d, %d) in file: %s\n", tile, x, y, file);
-                    fclose(f);
-                    return;
-                }
+        }
+        x++;
+    }
+
+    if (y < height) {
+        while (x < width) {
+            map_static_tiles[map_index(x, y)] = STATIC_TILE_EMPTY;
+            x++;
+        }
+        y++;
+        while (y < height) {
+            for (int fill_x = 0; fill_x < width; ++fill_x) {
+                map_static_tiles[map_index(fill_x, y)] = STATIC_TILE_EMPTY;
             }
+            y++;
         }
     }
 
