@@ -131,7 +131,7 @@ void SpriteAnimationSystem(miecs_world *world, float delta_time)
     }
 }
 
-void ParticleUpdateSystemPro(miecs_world *world, float delta_time)
+void ParticleUpdateSystem(miecs_world *world, float delta_time)
 {
     miecs_view_iter it;
     miecs_entity e;

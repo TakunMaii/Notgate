@@ -2,6 +2,6 @@
 #define GLOBALS_INCLUDE_H
 
 const int window_width = 800;
-const int window_height = 450;
+const int window_height = 600;
 
 #endif

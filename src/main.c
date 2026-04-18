@@ -26,11 +26,14 @@ int main(void)
 
         HeroControlSystem(world);
         DiscreteCoordinateSystem(world);
+        map_particle_effect_system(world, dt);
+        ParticleUpdateSystem(world, dt);
 
         BeginDrawing();
         ClearBackground(RAYWHITE);
 
         SpriteDrawingSystem(world);
+        ParticleDrawingSystem(world);
 
         EndDrawing();
     }
