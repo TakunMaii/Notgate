@@ -1,0 +1,794 @@
+#ifndef MAP_INCLUDE_H
+#define MAP_INCLUDE_H
+
+#include "miecs.h"
+#include "basic_components.h"
+#include "discrete_coordinate.h"
+#include "hero_control.h"
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include "globals.h"
+
+miecs_entity hero_entity;
+
+typedef enum {
+    STATIC_TILE_EMPTY = 0,
+    STATIC_TILE_WALL,
+    STATIC_TILE_PORTAL,
+    STATIC_TILE_FIXED_SIGNAL_SOURCE,
+    STATIC_TILE_FIXED_REPEATER,
+} StaticTileType;
+
+typedef enum {
+    DYNAMIC_TILE_NONE = 0,
+    DYNAMIC_TILE_BOX,
+    DYNAMIC_TILE_SIGNAL_SOURCE,
+    DYNAMIC_TILE_REPEATER,
+} DynamicTileType;
+
+int map_width;
+int map_height;
+StaticTileType *map_static_tiles;
+miecs_entity *map_static_entities;
+bool *map_static_activated;
+miecs_entity *map_dynamic_entities;
+DynamicTileType *map_dynamic_types;
+bool *map_dynamic_activated;
+int current_level;
+
+Texture2D portal_inactive_texture = {0};
+Texture2D portal_active_texture = {0};
+Texture2D repeater_inactive_texture = {0};
+Texture2D repeater_active_texture = {0};
+Texture2D fixed_repeater_inactive_texture = {0};
+Texture2D fixed_repeater_active_texture = {0};
+
+typedef struct {
+    int hero_x;
+    int hero_y;
+    miecs_entity *dynamic_entities;
+    DynamicTileType *dynamic_types;
+} UndoState;
+
+UndoState *undo_stack = NULL;
+int undo_stack_count = 0;
+int undo_stack_capacity = 0;
+
+bool level_file_exists(int level)
+{
+    char file[64];
+    snprintf(file, sizeof(file), "assets/maps/map%d.txt", level);
+    FILE *f = fopen(file, "r");
+    if (!f) {
+        return false;
+    }
+    fclose(f);
+    return true;
+}
+
+void map_next_level(miecs_world *world);
+void map_recalculate_activation(miecs_world *world);
+void update_activation_visuals(miecs_world *world);
+bool undo_stack_push(miecs_world *world, miecs_entity hero);
+void undo_stack_discard_latest(void);
+void undo_stack_clear(void);
+bool hero_try_undo(miecs_world *world, miecs_entity e);
+
+int map_index(int x, int y)
+{
+    return y * map_width + x;
+}
+
+bool map_in_bounds(int x, int y)
+{
+    return x >= 0 && x < map_width && y >= 0 && y < map_height;
+}
+
+void ensure_activation_textures_loaded(void)
+{
+    if (portal_inactive_texture.id == 0) {
+        portal_inactive_texture = LoadTexture("assets/art/portal_inactive.png");
+    }
+    if (portal_active_texture.id == 0) {
+        portal_active_texture = LoadTexture("assets/art/portal_active.png");
+    }
+    if (repeater_inactive_texture.id == 0) {
+        repeater_inactive_texture = LoadTexture("assets/art/repeater_inactive.png");
+    }
+    if (repeater_active_texture.id == 0) {
+        repeater_active_texture = LoadTexture("assets/art/repeater_active.png");
+    }
+    if (fixed_repeater_inactive_texture.id == 0) {
+        fixed_repeater_inactive_texture = LoadTexture("assets/art/fixed_repeater_inactive.png");
+    }
+    if (fixed_repeater_active_texture.id == 0) {
+        fixed_repeater_active_texture = LoadTexture("assets/art/fixed_repeater_active.png");
+    }
+}
+
+bool static_is_blocking(StaticTileType type)
+{
+    return type != STATIC_TILE_EMPTY;
+}
+
+bool static_is_walkable_for_hero(StaticTileType type, bool activated)
+{
+    if (type == STATIC_TILE_EMPTY) {
+        return true;
+    }
+    if (type == STATIC_TILE_PORTAL) {
+        return activated;
+    }
+    return false;
+}
+
+bool static_is_activatable(StaticTileType type)
+{
+    return type == STATIC_TILE_PORTAL || type == STATIC_TILE_FIXED_REPEATER;
+}
+
+bool dynamic_is_activatable(DynamicTileType type)
+{
+    return type == DYNAMIC_TILE_REPEATER;
+}
+
+void hero(miecs_world *world, int x, int y)
+{
+    hero_entity = miecs_entity_create(world);
+    Position *p = (Position *)miecs_component_add(world, hero_entity, Position_type);
+    *p = (Position){ .x = 0.0f, .y = 0.0f };
+
+    DiscreteCoordinate *dc = (DiscreteCoordinate *)miecs_component_add(world, hero_entity, DiscreteCoordinate_type);
+    *dc = (DiscreteCoordinate){ .x = x, .y = y };
+
+    HeroControl *hc = (HeroControl *)miecs_component_add(world, hero_entity, HeroControl_type);
+    *hc = (HeroControl){ .__unused = 0 };
+
+    Sprite *s = (Sprite *)miecs_component_add(world, hero_entity, Sprite_type);
+    *s = (Sprite){
+        .texture = LoadTexture("assets/art/hero.png"),
+        .sourceRec = (Rectangle){ 0, 0, 16, 16 },
+        .layer = 0,
+        .shader = LoadMaterialDefault().shader,
+        .flipX = false,
+    };
+
+    Scale *sc = (Scale *)miecs_component_add(world, hero_entity, Scale_type);
+    *sc = (Scale){ .scale = 2.0f };
+}
+
+miecs_entity wall(miecs_world *world, int x, int y)
+{
+    static Texture2D wall_texture = {0};
+    if (wall_texture.id == 0) {
+        wall_texture = LoadTexture("assets/art/wall.png");
+    }
+
+    miecs_entity e = miecs_entity_create(world);
+    Position *p = (Position *)miecs_component_add(world, e, Position_type);
+    *p = (Position){ .x = 0.0f, .y = 0.0f };
+
+    DiscreteCoordinate *dc = (DiscreteCoordinate *)miecs_component_add(world, e, DiscreteCoordinate_type);
+    *dc = (DiscreteCoordinate){ .x = x, .y = y };
+
+    Sprite *s = (Sprite *)miecs_component_add(world, e, Sprite_type);
+    *s = (Sprite){
+        .texture = wall_texture,
+        .sourceRec = (Rectangle){ 0, 0, 16, 16 },
+        .layer = 1,
+        .shader = LoadMaterialDefault().shader,
+        .flipX = false,
+    };
+
+    Scale *sc = (Scale *)miecs_component_add(world, e, Scale_type);
+    *sc = (Scale){ .scale = 2.0f };
+    return e;
+}
+
+miecs_entity portal(miecs_world *world, int x, int y)
+{
+    ensure_activation_textures_loaded();
+
+    miecs_entity e = miecs_entity_create(world);
+    Position *p = (Position *)miecs_component_add(world, e, Position_type);
+    *p = (Position){ .x = 0.0f, .y = 0.0f };
+
+    DiscreteCoordinate *dc = (DiscreteCoordinate *)miecs_component_add(world, e, DiscreteCoordinate_type);
+    *dc = (DiscreteCoordinate){ .x = x, .y = y };
+
+    Sprite *s = (Sprite *)miecs_component_add(world, e, Sprite_type);
+    *s = (Sprite){
+        .texture = portal_inactive_texture,
+        .sourceRec = (Rectangle){ 0, 0, 16, 16 },
+        .layer = -1,
+        .shader = LoadMaterialDefault().shader,
+        .flipX = false,
+    };
+
+    Scale *sc = (Scale *)miecs_component_add(world, e, Scale_type);
+    *sc = (Scale){ .scale = 2.0f };
+    return e;
+}
+
+miecs_entity fixed_signal_source(miecs_world *world, int x, int y)
+{
+    static Texture2D texture = {0};
+    if (texture.id == 0) {
+        texture = LoadTexture("assets/art/fixed_signal_source.png");
+    }
+
+    miecs_entity e = miecs_entity_create(world);
+    Position *p = (Position *)miecs_component_add(world, e, Position_type);
+    *p = (Position){ .x = 0.0f, .y = 0.0f };
+
+    DiscreteCoordinate *dc = (DiscreteCoordinate *)miecs_component_add(world, e, DiscreteCoordinate_type);
+    *dc = (DiscreteCoordinate){ .x = x, .y = y };
+
+    Sprite *s = (Sprite *)miecs_component_add(world, e, Sprite_type);
+    *s = (Sprite){
+        .texture = texture,
+        .sourceRec = (Rectangle){ 0, 0, 16, 16 },
+        .layer = 1,
+        .shader = LoadMaterialDefault().shader,
+        .flipX = false,
+    };
+
+    Scale *sc = (Scale *)miecs_component_add(world, e, Scale_type);
+    *sc = (Scale){ .scale = 2.0f };
+    return e;
+}
+
+miecs_entity fixed_repeater(miecs_world *world, int x, int y)
+{
+    ensure_activation_textures_loaded();
+
+    miecs_entity e = miecs_entity_create(world);
+    Position *p = (Position *)miecs_component_add(world, e, Position_type);
+    *p = (Position){ .x = 0.0f, .y = 0.0f };
+
+    DiscreteCoordinate *dc = (DiscreteCoordinate *)miecs_component_add(world, e, DiscreteCoordinate_type);
+    *dc = (DiscreteCoordinate){ .x = x, .y = y };
+
+    Sprite *s = (Sprite *)miecs_component_add(world, e, Sprite_type);
+    *s = (Sprite){
+        .texture = fixed_repeater_inactive_texture,
+        .sourceRec = (Rectangle){ 0, 0, 16, 16 },
+        .layer = 1,
+        .shader = LoadMaterialDefault().shader,
+        .flipX = false,
+    };
+
+    Scale *sc = (Scale *)miecs_component_add(world, e, Scale_type);
+    *sc = (Scale){ .scale = 2.0f };
+    return e;
+}
+
+void dynamic_unit(miecs_world *world, int x, int y, DynamicTileType type)
+{
+    static Texture2D box_texture = {0};
+    static Texture2D signal_source_texture = {0};
+
+    if (box_texture.id == 0) {
+        box_texture = LoadTexture("assets/art/box.png");
+    }
+    if (signal_source_texture.id == 0) {
+        signal_source_texture = LoadTexture("assets/art/signal_source.png");
+    }
+    ensure_activation_textures_loaded();
+
+    Texture2D texture = box_texture;
+    if (type == DYNAMIC_TILE_SIGNAL_SOURCE) {
+        texture = signal_source_texture;
+    } else if (type == DYNAMIC_TILE_REPEATER) {
+        texture = repeater_inactive_texture;
+    }
+
+    miecs_entity e = miecs_entity_create(world);
+    Position *p = (Position *)miecs_component_add(world, e, Position_type);
+    *p = (Position){ .x = 0.0f, .y = 0.0f };
+
+    DiscreteCoordinate *dc = (DiscreteCoordinate *)miecs_component_add(world, e, DiscreteCoordinate_type);
+    *dc = (DiscreteCoordinate){ .x = x, .y = y };
+
+    Sprite *s = (Sprite *)miecs_component_add(world, e, Sprite_type);
+    *s = (Sprite){
+        .texture = texture,
+        .sourceRec = (Rectangle){ 0, 0, 16, 16 },
+        .layer = 1,
+        .shader = LoadMaterialDefault().shader,
+        .flipX = false,
+    };
+
+    Scale *sc = (Scale *)miecs_component_add(world, e, Scale_type);
+    *sc = (Scale){ .scale = 2.0f };
+
+    int idx = map_index(x, y);
+    map_dynamic_entities[idx] = e;
+    map_dynamic_types[idx] = type;
+    map_dynamic_activated[idx] = false;
+}
+
+bool try_push_chain(miecs_world *world, int start_x, int start_y, int dx, int dy)
+{
+    int cursor_x = start_x;
+    int cursor_y = start_y;
+    if (!map_in_bounds(cursor_x, cursor_y)) {
+        return false;
+    }
+
+    int cursor_idx = map_index(cursor_x, cursor_y);
+    if (map_dynamic_types[cursor_idx] == DYNAMIC_TILE_NONE) {
+        return false;
+    }
+
+    while (map_in_bounds(cursor_x, cursor_y) && map_dynamic_types[map_index(cursor_x, cursor_y)] != DYNAMIC_TILE_NONE) {
+        cursor_x += dx;
+        cursor_y += dy;
+    }
+
+    if (!map_in_bounds(cursor_x, cursor_y)) {
+        return false;
+    }
+
+    int target_idx = map_index(cursor_x, cursor_y);
+    if (static_is_blocking(map_static_tiles[target_idx])) {
+        return false;
+    }
+
+    for (int x = cursor_x - dx, y = cursor_y - dy; x != start_x - dx || y != start_y - dy; x -= dx, y -= dy) {
+        int src_idx = map_index(x, y);
+        int dst_idx = map_index(x + dx, y + dy);
+        miecs_entity moved = map_dynamic_entities[src_idx];
+        DiscreteCoordinate *box_dc = (DiscreteCoordinate *)miecs_component_get(world, moved, DiscreteCoordinate_type);
+        box_dc->x += dx;
+        box_dc->y += dy;
+
+        map_dynamic_entities[dst_idx] = map_dynamic_entities[src_idx];
+        map_dynamic_types[dst_idx] = map_dynamic_types[src_idx];
+        map_dynamic_activated[dst_idx] = map_dynamic_activated[src_idx];
+
+        map_dynamic_entities[src_idx] = 0;
+        map_dynamic_types[src_idx] = DYNAMIC_TILE_NONE;
+        map_dynamic_activated[src_idx] = false;
+    }
+
+    return true;
+}
+
+bool undo_stack_push(miecs_world *world, miecs_entity hero)
+{
+    if (!map_dynamic_entities || !map_dynamic_types) {
+        return false;
+    }
+
+    if (undo_stack_count >= undo_stack_capacity) {
+        int new_capacity = undo_stack_capacity > 0 ? undo_stack_capacity * 2 : 32;
+        UndoState *new_stack = (UndoState *)realloc(undo_stack, sizeof(UndoState) * new_capacity);
+        if (!new_stack) {
+            fprintf(stderr, "Failed to grow undo stack\n");
+            return false;
+        }
+        undo_stack = new_stack;
+        undo_stack_capacity = new_capacity;
+    }
+
+    int cell_count = map_width * map_height;
+    UndoState state = {0};
+    state.dynamic_entities = (miecs_entity *)malloc(sizeof(miecs_entity) * cell_count);
+    state.dynamic_types = (DynamicTileType *)malloc(sizeof(DynamicTileType) * cell_count);
+    if (!state.dynamic_entities || !state.dynamic_types) {
+        free(state.dynamic_entities);
+        free(state.dynamic_types);
+        fprintf(stderr, "Failed to allocate undo snapshot\n");
+        return false;
+    }
+
+    memcpy(state.dynamic_entities, map_dynamic_entities, sizeof(miecs_entity) * cell_count);
+    memcpy(state.dynamic_types, map_dynamic_types, sizeof(DynamicTileType) * cell_count);
+
+    DiscreteCoordinate *hero_dc = (DiscreteCoordinate *)miecs_component_get(world, hero, DiscreteCoordinate_type);
+    state.hero_x = hero_dc->x;
+    state.hero_y = hero_dc->y;
+
+    undo_stack[undo_stack_count] = state;
+    undo_stack_count++;
+    return true;
+}
+
+void undo_stack_discard_latest(void)
+{
+    if (undo_stack_count <= 0) {
+        return;
+    }
+
+    undo_stack_count--;
+    free(undo_stack[undo_stack_count].dynamic_entities);
+    free(undo_stack[undo_stack_count].dynamic_types);
+    undo_stack[undo_stack_count].dynamic_entities = NULL;
+    undo_stack[undo_stack_count].dynamic_types = NULL;
+}
+
+void undo_stack_clear(void)
+{
+    while (undo_stack_count > 0) {
+        undo_stack_discard_latest();
+    }
+    free(undo_stack);
+    undo_stack = NULL;
+    undo_stack_capacity = 0;
+}
+
+bool hero_try_move(miecs_world *world, miecs_entity e, int dx, int dy)
+{
+    DiscreteCoordinate *dc = (DiscreteCoordinate *)miecs_component_get(world, e, DiscreteCoordinate_type);
+    int new_x = dc->x + dx;
+    int new_y = dc->y + dy;
+    if (!map_in_bounds(new_x, new_y)) {
+        return false;
+    }
+
+    int target_idx = map_index(new_x, new_y);
+    bool snapshot_pushed = undo_stack_push(world, e);
+    bool moved = false;
+    if (map_dynamic_types[target_idx] != DYNAMIC_TILE_NONE) {
+        if (try_push_chain(world, new_x, new_y, dx, dy)) {
+            dc->x = new_x;
+            dc->y = new_y;
+            moved = true;
+        }
+    } else if (static_is_walkable_for_hero(map_static_tiles[target_idx], map_static_activated[target_idx])) {
+        dc->x = new_x;
+        dc->y = new_y;
+        moved = true;
+    }
+
+    if (!moved) {
+        if (snapshot_pushed) {
+            undo_stack_discard_latest();
+        }
+        return false;
+    }
+
+    map_recalculate_activation(world);
+
+    if (map_static_tiles[target_idx] == STATIC_TILE_PORTAL && map_static_activated[target_idx]) {
+        map_next_level(world);
+    }
+    return true;
+}
+
+bool hero_try_undo(miecs_world *world, miecs_entity e)
+{
+    if (undo_stack_count <= 0 || !map_dynamic_entities || !map_dynamic_types) {
+        return false;
+    }
+
+    UndoState state = undo_stack[undo_stack_count - 1];
+    undo_stack_count--;
+
+    int cell_count = map_width * map_height;
+    memcpy(map_dynamic_entities, state.dynamic_entities, sizeof(miecs_entity) * cell_count);
+    memcpy(map_dynamic_types, state.dynamic_types, sizeof(DynamicTileType) * cell_count);
+    for (int idx = 0; idx < cell_count; ++idx) {
+        map_dynamic_activated[idx] = false;
+    }
+
+    DiscreteCoordinate *hero_dc = (DiscreteCoordinate *)miecs_component_get(world, e, DiscreteCoordinate_type);
+    hero_dc->x = state.hero_x;
+    hero_dc->y = state.hero_y;
+
+    for (int y = 0; y < map_height; ++y) {
+        for (int x = 0; x < map_width; ++x) {
+            int idx = map_index(x, y);
+            if (map_dynamic_entities[idx]) {
+                DiscreteCoordinate *dc = (DiscreteCoordinate *)miecs_component_get(world, map_dynamic_entities[idx], DiscreteCoordinate_type);
+                dc->x = x;
+                dc->y = y;
+            }
+        }
+    }
+
+    free(state.dynamic_entities);
+    free(state.dynamic_types);
+
+    map_recalculate_activation(world);
+    return true;
+}
+
+void hero_try_move_horizontal(miecs_world *world, miecs_entity e, int dx)
+{
+    hero_try_move(world, e, dx, 0);
+}
+
+void hero_try_move_vertical(miecs_world *world, miecs_entity e, int dy)
+{
+    hero_try_move(world, e, 0, dy);
+}
+
+void update_activation_visuals(miecs_world *world)
+{
+    ensure_activation_textures_loaded();
+
+    int cell_count = map_width * map_height;
+    for (int idx = 0; idx < cell_count; ++idx) {
+        if (map_static_tiles[idx] == STATIC_TILE_PORTAL && map_static_entities[idx]) {
+            Sprite *sprite = (Sprite *)miecs_component_get(world, map_static_entities[idx], Sprite_type);
+            if (sprite) {
+                sprite->texture = map_static_activated[idx] ? portal_active_texture : portal_inactive_texture;
+            }
+        } else if (map_static_tiles[idx] == STATIC_TILE_FIXED_REPEATER && map_static_entities[idx]) {
+            Sprite *sprite = (Sprite *)miecs_component_get(world, map_static_entities[idx], Sprite_type);
+            if (sprite) {
+                sprite->texture = map_static_activated[idx] ? fixed_repeater_active_texture : fixed_repeater_inactive_texture;
+            }
+        }
+
+        if (map_dynamic_types[idx] == DYNAMIC_TILE_REPEATER && map_dynamic_entities[idx]) {
+            Sprite *sprite = (Sprite *)miecs_component_get(world, map_dynamic_entities[idx], Sprite_type);
+            if (sprite) {
+                sprite->texture = map_dynamic_activated[idx] ? repeater_active_texture : repeater_inactive_texture;
+            }
+        }
+    }
+}
+
+void map_recalculate_activation(miecs_world *world)
+{
+    if (!map_static_tiles || !map_dynamic_types || !map_static_activated || !map_dynamic_activated) {
+        return;
+    }
+
+    int cell_count = map_width * map_height;
+    for (int idx = 0; idx < cell_count; ++idx) {
+        if (static_is_activatable(map_static_tiles[idx])) {
+            map_static_activated[idx] = false;
+        }
+        if (dynamic_is_activatable(map_dynamic_types[idx])) {
+            map_dynamic_activated[idx] = false;
+        }
+    }
+
+    int *queue_x = (int *)malloc(sizeof(int) * cell_count);
+    int *queue_y = (int *)malloc(sizeof(int) * cell_count);
+    if (!queue_x || !queue_y) {
+        free(queue_x);
+        free(queue_y);
+        fprintf(stderr, "Failed to allocate activation queue\n");
+        return;
+    }
+
+    int q_head = 0;
+    int q_tail = 0;
+    for (int y = 0; y < map_height; ++y) {
+        for (int x = 0; x < map_width; ++x) {
+            int idx = map_index(x, y);
+            if (map_static_tiles[idx] == STATIC_TILE_FIXED_SIGNAL_SOURCE || map_dynamic_types[idx] == DYNAMIC_TILE_SIGNAL_SOURCE) {
+                queue_x[q_tail] = x;
+                queue_y[q_tail] = y;
+                q_tail++;
+            }
+        }
+    }
+
+    while (q_head < q_tail) {
+        int emitter_x = queue_x[q_head];
+        int emitter_y = queue_y[q_head];
+        q_head++;
+
+        for (int dy = -3; dy <= 3; ++dy) {
+            int max_abs_dx = 3 - abs(dy);
+            for (int dx = -max_abs_dx; dx <= max_abs_dx; ++dx) {
+                int tx = emitter_x + dx;
+                int ty = emitter_y + dy;
+                if (!map_in_bounds(tx, ty)) {
+                    continue;
+                }
+                int idx = map_index(tx, ty);
+
+                if (map_static_tiles[idx] == STATIC_TILE_PORTAL && !map_static_activated[idx]) {
+                    map_static_activated[idx] = true;
+                } else if (map_static_tiles[idx] == STATIC_TILE_FIXED_REPEATER && !map_static_activated[idx]) {
+                    map_static_activated[idx] = true;
+                    queue_x[q_tail] = tx;
+                    queue_y[q_tail] = ty;
+                    q_tail++;
+                }
+
+                if (map_dynamic_types[idx] == DYNAMIC_TILE_REPEATER && !map_dynamic_activated[idx]) {
+                    map_dynamic_activated[idx] = true;
+                    queue_x[q_tail] = tx;
+                    queue_y[q_tail] = ty;
+                    q_tail++;
+                }
+            }
+        }
+    }
+
+    free(queue_x);
+    free(queue_y);
+
+    update_activation_visuals(world);
+}
+
+void map_load(miecs_world *world, const char *file)
+{
+    undo_stack_clear();
+
+    FILE *f = fopen(file, "r");
+    if (!f) {
+        fprintf(stderr, "Failed to open map file: %s\n", file);
+        return;
+    }
+
+    if (map_static_tiles) {
+        miecs_view_iter it;
+        miecs_entity e;
+        miecs_view_begin(&it, world, 2, Sprite_type, Scale_type);
+        while (miecs_view_next(&it, &e)) {
+            miecs_entity_destroy(world, e);
+        }
+        free(map_static_tiles);
+        free(map_static_entities);
+        free(map_static_activated);
+        free(map_dynamic_entities);
+        free(map_dynamic_types);
+        free(map_dynamic_activated);
+        map_static_tiles = NULL;
+        map_static_entities = NULL;
+        map_static_activated = NULL;
+        map_dynamic_entities = NULL;
+        map_dynamic_types = NULL;
+        map_dynamic_activated = NULL;
+    }
+
+    int width, height;
+    if (fscanf(f, "%d %d\n", &width, &height) != 2) {
+        fprintf(stderr, "Failed to read map dimensions from file: %s\n", file);
+        fclose(f);
+        return;
+    }
+
+    map_width = width;
+    map_height = height;
+    int cell_count = map_width * map_height;
+
+    map_static_tiles = (StaticTileType *)malloc(sizeof(StaticTileType) * cell_count);
+    map_static_entities = (miecs_entity *)calloc(cell_count, sizeof(miecs_entity));
+    map_static_activated = (bool *)calloc(cell_count, sizeof(bool));
+    map_dynamic_entities = (miecs_entity *)calloc(cell_count, sizeof(miecs_entity));
+    map_dynamic_types = (DynamicTileType *)calloc(cell_count, sizeof(DynamicTileType));
+    map_dynamic_activated = (bool *)calloc(cell_count, sizeof(bool));
+    if (!map_static_tiles || !map_static_entities || !map_static_activated || !map_dynamic_entities || !map_dynamic_types || !map_dynamic_activated) {
+        fprintf(stderr, "Failed to allocate map memory\n");
+        free(map_static_tiles);
+        free(map_static_entities);
+        free(map_static_activated);
+        free(map_dynamic_entities);
+        free(map_dynamic_types);
+        free(map_dynamic_activated);
+        map_static_tiles = NULL;
+        map_static_entities = NULL;
+        map_static_activated = NULL;
+        map_dynamic_entities = NULL;
+        map_dynamic_types = NULL;
+        map_dynamic_activated = NULL;
+        fclose(f);
+        return;
+    }
+
+    for (int idx = 0; idx < cell_count; ++idx) {
+        map_static_tiles[idx] = STATIC_TILE_EMPTY;
+    }
+
+    for (int y = height - 1; y >= 0; --y) {
+        for (int x = 0; x < width; ++x) {
+            char tile;
+            if (fscanf(f, "%c", &tile) != 1) {
+                fprintf(stderr, "Failed to read tile at (%d, %d) from file: %s\n", x, y, file);
+                fclose(f);
+                return;
+            }
+            int idx = map_index(x, y);
+            switch (tile) {
+                case '\n':
+                case '\r': { x--; continue; }
+                case ' ': { map_static_tiles[idx] = STATIC_TILE_EMPTY; } break;
+                case '#': {
+                    map_static_tiles[idx] = STATIC_TILE_WALL;
+                    map_static_entities[idx] = wall(world, x, y);
+                } break;
+                case '@': {
+                    map_static_tiles[idx] = STATIC_TILE_EMPTY;
+                    hero(world, x, y);
+                } break;
+                case 'o': {
+                    map_static_tiles[idx] = STATIC_TILE_EMPTY;
+                    dynamic_unit(world, x, y, DYNAMIC_TILE_BOX);
+                } break;
+                case 'P': {
+                    map_static_tiles[idx] = STATIC_TILE_PORTAL;
+                    map_static_entities[idx] = portal(world, x, y);
+                } break;
+                case 's': {
+                    map_static_tiles[idx] = STATIC_TILE_EMPTY;
+                    dynamic_unit(world, x, y, DYNAMIC_TILE_SIGNAL_SOURCE);
+                } break;
+                case 'r': {
+                    map_static_tiles[idx] = STATIC_TILE_EMPTY;
+                    dynamic_unit(world, x, y, DYNAMIC_TILE_REPEATER);
+                } break;
+                case 'S': {
+                    map_static_tiles[idx] = STATIC_TILE_FIXED_SIGNAL_SOURCE;
+                    map_static_entities[idx] = fixed_signal_source(world, x, y);
+                } break;
+                case 'R': {
+                    map_static_tiles[idx] = STATIC_TILE_FIXED_REPEATER;
+                    map_static_entities[idx] = fixed_repeater(world, x, y);
+                } break;
+                default: {
+                    fprintf(stderr, "Unknown tile '%c' at (%d, %d) in file: %s\n", tile, x, y, file);
+                    fclose(f);
+                    return;
+                }
+            }
+        }
+    }
+
+    fclose(f);
+
+    float map_original_width = map_width * 16.0f;
+    float map_original_height = map_height * 16.0f;
+    float map_target_width = window_width * 0.8f;
+    float map_target_height = window_height * 0.8f;
+
+    float sprite_scale = fminf(map_target_width / map_original_width, map_target_height / map_original_height);
+    float map_origin_x = (window_width - map_original_width * sprite_scale) / 2.0f;
+    float map_origin_y = (window_height - map_original_height * sprite_scale) / 2.0f;
+    SetDiscreteCoordinate(map_origin_x, map_origin_y, 16.0f * sprite_scale);
+    {
+        miecs_view_iter it;
+        miecs_entity e;
+        miecs_view_begin(&it, world, 2, Sprite_type, Scale_type);
+        while (miecs_view_next(&it, &e)) {
+            Scale *sc = (Scale *)miecs_component_get(world, e, Scale_type);
+            sc->scale = sprite_scale;
+        }
+    }
+
+    map_recalculate_activation(world);
+}
+
+void map_init(miecs_world *world)
+{
+    map_static_tiles = NULL;
+    map_static_entities = NULL;
+    map_static_activated = NULL;
+    map_dynamic_entities = NULL;
+    map_dynamic_types = NULL;
+    map_dynamic_activated = NULL;
+    undo_stack = NULL;
+    undo_stack_count = 0;
+    undo_stack_capacity = 0;
+    current_level = 1;
+    map_load(world, "assets/maps/map1.txt");
+}
+
+void map_load_level(miecs_world *world, int level)
+{
+    char file[64];
+    snprintf(file, sizeof(file), "assets/maps/map%d.txt", level);
+    current_level = level;
+    map_load(world, file);
+}
+
+void map_next_level(miecs_world *world)
+{
+    int next_level = current_level + 1;
+    if (!level_file_exists(next_level)) {
+        next_level = 1;
+    }
+    map_load_level(world, next_level);
+}
+
+#endif
