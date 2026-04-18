@@ -30,6 +30,8 @@ typedef enum {
     DYNAMIC_TILE_NOT_SIGNAL,
 } DynamicTileType;
 
+#include "rules_kernel.h"
+
 int map_width;
 int map_height;
 StaticTileType *map_static_tiles;
@@ -458,54 +460,40 @@ void dynamic_unit(miecs_world *world, int x, int y, DynamicTileType type)
     map_dynamic_activated[idx] = false;
 }
 
+typedef struct {
+    miecs_world *world;
+} MapPushShiftCtx;
+
+void on_map_push_shift(int src_x, int src_y, int dst_x, int dst_y, void *user)
+{
+    MapPushShiftCtx *ctx = (MapPushShiftCtx *)user;
+    int src_idx = map_index(src_x, src_y);
+    int dst_idx = map_index(dst_x, dst_y);
+    miecs_entity moved = map_dynamic_entities[src_idx];
+    if (moved) {
+        DiscreteCoordinate *box_dc = (DiscreteCoordinate *)miecs_component_get(ctx->world, moved, DiscreteCoordinate_type);
+        box_dc->x = dst_x;
+        box_dc->y = dst_y;
+    }
+    map_dynamic_entities[dst_idx] = moved;
+    map_dynamic_entities[src_idx] = 0;
+}
+
 bool try_push_chain(miecs_world *world, int start_x, int start_y, int dx, int dy)
 {
-    int cursor_x = start_x;
-    int cursor_y = start_y;
-    if (!map_in_bounds(cursor_x, cursor_y)) {
-        return false;
-    }
-
-    int cursor_idx = map_index(cursor_x, cursor_y);
-    if (map_dynamic_types[cursor_idx] == DYNAMIC_TILE_NONE) {
-        return false;
-    }
-
-    while (map_in_bounds(cursor_x, cursor_y) && map_dynamic_types[map_index(cursor_x, cursor_y)] != DYNAMIC_TILE_NONE) {
-        cursor_x += dx;
-        cursor_y += dy;
-    }
-
-    if (!map_in_bounds(cursor_x, cursor_y)) {
-        return false;
-    }
-
-    int target_idx = map_index(cursor_x, cursor_y);
-    if (static_is_blocking(map_static_tiles[target_idx])) {
-        return false;
-    }
-
-    for (int x = cursor_x - dx, y = cursor_y - dy; x != start_x - dx || y != start_y - dy; x -= dx, y -= dy) {
-        int src_idx = map_index(x, y);
-        int dst_idx = map_index(x + dx, y + dy);
-        miecs_entity moved = map_dynamic_entities[src_idx];
-        DiscreteCoordinate *box_dc = (DiscreteCoordinate *)miecs_component_get(world, moved, DiscreteCoordinate_type);
-        box_dc->x += dx;
-        box_dc->y += dy;
-
-        map_dynamic_entities[dst_idx] = map_dynamic_entities[src_idx];
-        map_dynamic_types[dst_idx] = map_dynamic_types[src_idx];
-        map_dynamic_activated[dst_idx] = map_dynamic_activated[src_idx];
-        if (map_dynamic_types[dst_idx] == DYNAMIC_TILE_NOT_SIGNAL) {
-            map_dynamic_activated[dst_idx] = true;
-        }
-
-        map_dynamic_entities[src_idx] = 0;
-        map_dynamic_types[src_idx] = DYNAMIC_TILE_NONE;
-        map_dynamic_activated[src_idx] = false;
-    }
-
-    return true;
+    MapPushShiftCtx ctx = { .world = world };
+    return rules_try_push_chain(
+        map_width,
+        map_height,
+        map_static_tiles,
+        map_dynamic_types,
+        map_dynamic_activated,
+        start_x,
+        start_y,
+        dx,
+        dy,
+        on_map_push_shift,
+        &ctx);
 }
 
 bool undo_stack_push(miecs_world *world, miecs_entity hero)
@@ -686,25 +674,12 @@ bool cell_has_not_signal(int idx)
 
 bool cell_can_emit_signal(int idx)
 {
-    if (map_static_tiles[idx] == STATIC_TILE_FIXED_SIGNAL_SOURCE) {
-        return true;
-    }
-    if (map_dynamic_types[idx] == DYNAMIC_TILE_SIGNAL_SOURCE) {
-        return true;
-    }
-    if (map_static_tiles[idx] == STATIC_TILE_FIXED_REPEATER && map_static_activated[idx]) {
-        return true;
-    }
-    if (map_dynamic_types[idx] == DYNAMIC_TILE_REPEATER && map_dynamic_activated[idx]) {
-        return true;
-    }
-    if (map_static_tiles[idx] == STATIC_TILE_FIXED_NOT_SIGNAL && !map_static_activated[idx]) {
-        return true;
-    }
-    if (map_dynamic_types[idx] == DYNAMIC_TILE_NOT_SIGNAL && !map_dynamic_activated[idx]) {
-        return true;
-    }
-    return false;
+    return rules_cell_can_emit_signal(
+        map_static_tiles,
+        map_dynamic_types,
+        map_static_activated,
+        map_dynamic_activated,
+        idx);
 }
 
 void update_activation_visuals(miecs_world *world)
@@ -750,374 +725,13 @@ void map_recalculate_activation(miecs_world *world)
         return;
     }
 
-    int cell_count = map_width * map_height;
-    bool *prev_static_activated = (bool *)malloc(sizeof(bool) * cell_count);
-    bool *prev_dynamic_activated = (bool *)malloc(sizeof(bool) * cell_count);
-    bool *const_emitter = (bool *)calloc(cell_count, sizeof(bool));
-    bool *const_hits_not = (bool *)calloc(cell_count, sizeof(bool));
-    bool *force_not_off = (bool *)calloc(cell_count, sizeof(bool));
-    bool *emit_curr = (bool *)calloc(cell_count, sizeof(bool));
-    bool *emit_next = (bool *)calloc(cell_count, sizeof(bool));
-    bool *is_variable = (bool *)calloc(cell_count, sizeof(bool));
-    int *component_id = (int *)malloc(sizeof(int) * cell_count);
-    int *queue = (int *)malloc(sizeof(int) * cell_count);
-    unsigned char *history = (unsigned char *)calloc(24 * cell_count, sizeof(unsigned char));
-
-    if (!prev_static_activated || !prev_dynamic_activated || !const_emitter || !const_hits_not || !force_not_off
-        || !emit_curr || !emit_next || !is_variable || !component_id || !queue || !history) {
-        free(prev_static_activated);
-        free(prev_dynamic_activated);
-        free(const_emitter);
-        free(const_hits_not);
-        free(force_not_off);
-        free(emit_curr);
-        free(emit_next);
-        free(is_variable);
-        free(component_id);
-        free(queue);
-        free(history);
-        fprintf(stderr, "Failed to allocate activation buffers\n");
-        return;
-    }
-
-    memcpy(prev_static_activated, map_static_activated, sizeof(bool) * cell_count);
-    memcpy(prev_dynamic_activated, map_dynamic_activated, sizeof(bool) * cell_count);
-
-    for (int idx = 0; idx < cell_count; ++idx) {
-        if (static_is_activatable(map_static_tiles[idx])) {
-            map_static_activated[idx] = false;
-        }
-        if (dynamic_is_activatable(map_dynamic_types[idx])) {
-            map_dynamic_activated[idx] = false;
-        }
-        component_id[idx] = -1;
-    }
-
-    // 1) Constant-source closure (signal sources + repeaters activated by them).
-    int q_head = 0;
-    int q_tail = 0;
-    for (int y = 0; y < map_height; ++y) {
-        for (int x = 0; x < map_width; ++x) {
-            int idx = map_index(x, y);
-            if (map_static_tiles[idx] == STATIC_TILE_FIXED_SIGNAL_SOURCE || map_dynamic_types[idx] == DYNAMIC_TILE_SIGNAL_SOURCE) {
-                if (!const_emitter[idx]) {
-                    const_emitter[idx] = true;
-                    queue[q_tail++] = idx;
-                }
-            }
-        }
-    }
-
-    while (q_head < q_tail) {
-        int emitter_idx = queue[q_head++];
-        int ex = emitter_idx % map_width;
-        int ey = emitter_idx / map_width;
-
-        for (int dy = -3; dy <= 3; ++dy) {
-            int max_abs_dx = 3 - abs(dy);
-            for (int dx = -max_abs_dx; dx <= max_abs_dx; ++dx) {
-                int tx = ex + dx;
-                int ty = ey + dy;
-                if (!map_in_bounds(tx, ty)) {
-                    continue;
-                }
-                int idx = map_index(tx, ty);
-                if (map_static_tiles[idx] == STATIC_TILE_PORTAL) {
-                    map_static_activated[idx] = true;
-                }
-                if (map_static_tiles[idx] == STATIC_TILE_FIXED_REPEATER && !const_emitter[idx]) {
-                    const_emitter[idx] = true;
-                    queue[q_tail++] = idx;
-                }
-                if (map_dynamic_types[idx] == DYNAMIC_TILE_REPEATER && !const_emitter[idx]) {
-                    const_emitter[idx] = true;
-                    queue[q_tail++] = idx;
-                }
-                if (map_static_tiles[idx] == STATIC_TILE_FIXED_NOT_SIGNAL || map_dynamic_types[idx] == DYNAMIC_TILE_NOT_SIGNAL) {
-                    const_hits_not[idx] = true;
-                }
-            }
-        }
-    }
-
-    // 2) NOT components: symmetric external hits keep previous state, asymmetric hits force hit-side OFF.
-    int component_count = 0;
-    int *component_size = (int *)calloc(cell_count, sizeof(int));
-    int *component_hit_count = (int *)calloc(cell_count, sizeof(int));
-    if (!component_size || !component_hit_count) {
-        free(component_size);
-        free(component_hit_count);
-        free(prev_static_activated);
-        free(prev_dynamic_activated);
-        free(const_emitter);
-        free(const_hits_not);
-        free(force_not_off);
-        free(emit_curr);
-        free(emit_next);
-        free(is_variable);
-        free(component_id);
-        free(queue);
-        free(history);
-        fprintf(stderr, "Failed to allocate NOT component buffers\n");
-        return;
-    }
-
-    for (int idx = 0; idx < cell_count; ++idx) {
-        if (!cell_has_not_signal(idx) || component_id[idx] >= 0) {
-            continue;
-        }
-
-        int local_head = 0;
-        int local_tail = 0;
-        queue[local_tail++] = idx;
-        component_id[idx] = component_count;
-
-        while (local_head < local_tail) {
-            int current = queue[local_head++];
-            int cx = current % map_width;
-            int cy = current / map_width;
-            component_size[component_count]++;
-            if (const_hits_not[current]) {
-                component_hit_count[component_count]++;
-            }
-
-            for (int other = 0; other < cell_count; ++other) {
-                if (component_id[other] >= 0 || !cell_has_not_signal(other)) {
-                    continue;
-                }
-                int ox = other % map_width;
-                int oy = other / map_width;
-                if (abs(cx - ox) + abs(cy - oy) <= 3) {
-                    component_id[other] = component_count;
-                    queue[local_tail++] = other;
-                }
-            }
-        }
-
-        component_count++;
-    }
-
-    for (int idx = 0; idx < cell_count; ++idx) {
-        if (!cell_has_not_signal(idx)) {
-            continue;
-        }
-        int cid = component_id[idx];
-        if (cid < 0) {
-            continue;
-        }
-        int size = component_size[cid];
-        int hits = component_hit_count[cid];
-        bool hit = const_hits_not[idx];
-        if (size <= 1) {
-            force_not_off[idx] = hit;
-        } else if (hits > 0 && hits < size) {
-            force_not_off[idx] = hit;
-        } else {
-            force_not_off[idx] = false;
-        }
-    }
-
-    // 3) Initialize emitter states.
-    for (int idx = 0; idx < cell_count; ++idx) {
-        bool has_static_repeater = map_static_tiles[idx] == STATIC_TILE_FIXED_REPEATER;
-        bool has_dynamic_repeater = map_dynamic_types[idx] == DYNAMIC_TILE_REPEATER;
-        bool has_static_not = map_static_tiles[idx] == STATIC_TILE_FIXED_NOT_SIGNAL;
-        bool has_dynamic_not = map_dynamic_types[idx] == DYNAMIC_TILE_NOT_SIGNAL;
-        bool has_signal = map_static_tiles[idx] == STATIC_TILE_FIXED_SIGNAL_SOURCE || map_dynamic_types[idx] == DYNAMIC_TILE_SIGNAL_SOURCE;
-
-        if (has_signal) {
-            emit_curr[idx] = true;
-            is_variable[idx] = false;
-            continue;
-        }
-        if (has_static_repeater || has_dynamic_repeater) {
-            if (const_emitter[idx]) {
-                emit_curr[idx] = true;
-                is_variable[idx] = false;
-            } else {
-                bool prev_on = has_static_repeater ? prev_static_activated[idx] : prev_dynamic_activated[idx];
-                emit_curr[idx] = prev_on;
-                is_variable[idx] = true;
-            }
-            continue;
-        }
-        if (has_static_not || has_dynamic_not) {
-            if (force_not_off[idx]) {
-                emit_curr[idx] = false;
-                is_variable[idx] = false;
-            } else {
-                bool prev_off = has_static_not ? prev_static_activated[idx] : prev_dynamic_activated[idx];
-                emit_curr[idx] = !prev_off;
-                is_variable[idx] = true;
-            }
-        }
-    }
-
-    // 4) Solve variable network, collapse oscillation loops to OFF.
-    int history_count = 0;
-    bool settled = false;
-    for (int iter = 0; iter < 24; ++iter) {
-        for (int idx = 0; idx < cell_count; ++idx) {
-            history[history_count * cell_count + idx] = (is_variable[idx] && emit_curr[idx]) ? 1 : 0;
-        }
-        history_count++;
-
-        for (int idx = 0; idx < cell_count; ++idx) {
-            emit_next[idx] = emit_curr[idx];
-            if (!is_variable[idx]) {
-                continue;
-            }
-            int x = idx % map_width;
-            int y = idx / map_width;
-            bool has_input = false;
-            for (int dy = -3; dy <= 3 && !has_input; ++dy) {
-                int max_abs_dx = 3 - abs(dy);
-                for (int dx = -max_abs_dx; dx <= max_abs_dx; ++dx) {
-                    if (dx == 0 && dy == 0) {
-                        continue;
-                    }
-                    int tx = x + dx;
-                    int ty = y + dy;
-                    if (!map_in_bounds(tx, ty)) {
-                        continue;
-                    }
-                    int src = map_index(tx, ty);
-                    if (emit_curr[src]) {
-                        has_input = true;
-                        break;
-                    }
-                }
-            }
-
-            if (map_static_tiles[idx] == STATIC_TILE_FIXED_REPEATER || map_dynamic_types[idx] == DYNAMIC_TILE_REPEATER) {
-                emit_next[idx] = has_input;
-            } else if (map_static_tiles[idx] == STATIC_TILE_FIXED_NOT_SIGNAL || map_dynamic_types[idx] == DYNAMIC_TILE_NOT_SIGNAL) {
-                emit_next[idx] = !has_input;
-            }
-        }
-
-        bool changed = false;
-        for (int idx = 0; idx < cell_count; ++idx) {
-            if (is_variable[idx] && emit_next[idx] != emit_curr[idx]) {
-                changed = true;
-                break;
-            }
-        }
-        if (!changed) {
-            settled = true;
-            break;
-        }
-
-        int cycle_start = -1;
-        for (int t = 0; t < history_count; ++t) {
-            bool equal = true;
-            for (int idx = 0; idx < cell_count; ++idx) {
-                if (!is_variable[idx]) {
-                    continue;
-                }
-                bool state_t = history[t * cell_count + idx] != 0;
-                if (state_t != emit_next[idx]) {
-                    equal = false;
-                    break;
-                }
-            }
-            if (equal) {
-                cycle_start = t;
-                break;
-            }
-        }
-
-        if (cycle_start >= 0) {
-            for (int idx = 0; idx < cell_count; ++idx) {
-                if (!is_variable[idx]) {
-                    continue;
-                }
-                bool first = history[cycle_start * cell_count + idx] != 0;
-                bool oscillating = false;
-                for (int t = cycle_start + 1; t < history_count; ++t) {
-                    bool state_t = history[t * cell_count + idx] != 0;
-                    if (state_t != first) {
-                        oscillating = true;
-                        break;
-                    }
-                }
-                if (!oscillating && emit_next[idx] != first) {
-                    oscillating = true;
-                }
-                emit_curr[idx] = oscillating ? false : emit_next[idx];
-            }
-            settled = true;
-            break;
-        }
-
-        memcpy(emit_curr, emit_next, sizeof(bool) * cell_count);
-    }
-
-    if (!settled) {
-        for (int idx = 0; idx < cell_count; ++idx) {
-            if (is_variable[idx]) {
-                emit_curr[idx] = false;
-            }
-        }
-    }
-
-    // 5) Write final activation states.
-    for (int idx = 0; idx < cell_count; ++idx) {
-        if (map_static_tiles[idx] == STATIC_TILE_PORTAL) {
-            map_static_activated[idx] = false;
-        }
-        if (map_static_tiles[idx] == STATIC_TILE_FIXED_REPEATER) {
-            map_static_activated[idx] = emit_curr[idx];
-        } else if (map_dynamic_types[idx] == DYNAMIC_TILE_REPEATER) {
-            map_dynamic_activated[idx] = emit_curr[idx];
-        }
-
-        if (map_static_tiles[idx] == STATIC_TILE_FIXED_NOT_SIGNAL) {
-            map_static_activated[idx] = !emit_curr[idx];
-        } else if (map_dynamic_types[idx] == DYNAMIC_TILE_NOT_SIGNAL) {
-            map_dynamic_activated[idx] = !emit_curr[idx];
-        }
-    }
-
-    for (int y = 0; y < map_height; ++y) {
-        for (int x = 0; x < map_width; ++x) {
-            int idx = map_index(x, y);
-            if (map_static_tiles[idx] != STATIC_TILE_PORTAL) {
-                continue;
-            }
-            bool on = false;
-            for (int dy = -3; dy <= 3 && !on; ++dy) {
-                int max_abs_dx = 3 - abs(dy);
-                for (int dx = -max_abs_dx; dx <= max_abs_dx; ++dx) {
-                    int tx = x + dx;
-                    int ty = y + dy;
-                    if (!map_in_bounds(tx, ty)) {
-                        continue;
-                    }
-                    int src = map_index(tx, ty);
-                    if (emit_curr[src]) {
-                        on = true;
-                        break;
-                    }
-                }
-            }
-            map_static_activated[idx] = on;
-        }
-    }
-
-    free(component_size);
-    free(component_hit_count);
-    free(prev_static_activated);
-    free(prev_dynamic_activated);
-    free(const_emitter);
-    free(const_hits_not);
-    free(force_not_off);
-    free(emit_curr);
-    free(emit_next);
-    free(is_variable);
-    free(component_id);
-    free(queue);
-    free(history);
+    rules_recalculate_activation(
+        map_width,
+        map_height,
+        map_static_tiles,
+        map_dynamic_types,
+        map_static_activated,
+        map_dynamic_activated);
 
     update_activation_visuals(world);
 }
