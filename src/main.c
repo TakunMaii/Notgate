@@ -70,7 +70,7 @@ int main(void)
                 command_buffer[0] = '\0';
             } else if (IsKeyPressed(KEY_ENTER) || IsKeyPressed(KEY_KP_ENTER)) {
                 if (strcmp(command_buffer, "/solve") == 0) {
-                    solver_start(world, 1000000);
+                    solver_start(world, 10000000);
                     if (solver_status() == SOLVER_ERROR) {
                         snprintf(hint_text, sizeof(hint_text), "solve error");
                         hint_timer = 2.0f;
@@ -113,6 +113,7 @@ int main(void)
             if (solver_status() == SOLVER_TRUE) {
                 snprintf(hint_text, sizeof(hint_text), "true");
                 hint_timer = 3.0f;
+                printf("solve=true, steps=%d, path=%s\n", solver_solution_length(), solver_solution_cn());
             } else if (solver_status() == SOLVER_FALSE) {
                 snprintf(hint_text, sizeof(hint_text), "false");
                 hint_timer = 3.0f;

@@ -19,6 +19,12 @@ typedef enum {
 } SolverStatus;
 
 typedef struct {
+    unsigned char *state;
+    int parent_node;
+    char move;
+} SolverNode;
+
+typedef struct {
     SolverStatus status;
     int path_limit;
     int searched_paths;
@@ -31,14 +37,22 @@ typedef struct {
     int state_bytes;
 
     size_t queue_capacity;
-    unsigned char **queue;
+    int *queue;
     size_t queue_head;
     size_t queue_tail;
+
+    SolverNode *nodes;
+    size_t nodes_capacity;
+    size_t nodes_count;
 
     size_t visited_capacity;
     unsigned char **visited_states;
     uint64_t *visited_hashes;
+    int *visited_node_indices;
     size_t visited_count;
+
+    char *solution_moves;
+    int solution_len;
 } SolverContext;
 
 SolverContext solver_ctx = {0};
@@ -154,7 +168,7 @@ void solver_recalculate_activation(DynamicTileType *dynamic_types, bool *static_
         dynamic_activated);
 }
 
-bool solver_visited_insert(unsigned char *state)
+bool solver_visited_insert(unsigned char *state, int node_index)
 {
     uint64_t h = solver_hash_state(state, solver_ctx.state_bytes);
     size_t mask = solver_ctx.visited_capacity - 1;
@@ -164,6 +178,7 @@ bool solver_visited_insert(unsigned char *state)
         if (!solver_ctx.visited_states[idx]) {
             solver_ctx.visited_states[idx] = state;
             solver_ctx.visited_hashes[idx] = h;
+            solver_ctx.visited_node_indices[idx] = node_index;
             solver_ctx.visited_count++;
             return true;
         }
@@ -175,6 +190,46 @@ bool solver_visited_insert(unsigned char *state)
     }
 }
 
+void solver_build_solution(int parent_node, char final_move)
+{
+    free(solver_ctx.solution_moves);
+    solver_ctx.solution_moves = NULL;
+    solver_ctx.solution_len = 0;
+
+    int cap = (int)solver_ctx.nodes_count + 2;
+    char *rev = (char *)malloc((size_t)cap);
+    if (!rev) {
+        return;
+    }
+
+    int n = 0;
+    if (final_move) {
+        rev[n++] = final_move;
+    }
+    int node = parent_node;
+    while (node >= 0 && n < cap - 1) {
+        char mv = solver_ctx.nodes[node].move;
+        if (mv) {
+            rev[n++] = mv;
+        }
+        node = solver_ctx.nodes[node].parent_node;
+    }
+
+    char *out = (char *)malloc((size_t)n + 1);
+    if (!out) {
+        free(rev);
+        return;
+    }
+    for (int i = 0; i < n; ++i) {
+        out[i] = rev[n - 1 - i];
+    }
+    out[n] = '\0';
+    free(rev);
+
+    solver_ctx.solution_moves = out;
+    solver_ctx.solution_len = n;
+}
+
 void solver_release_memory(void)
 {
     if (solver_ctx.visited_states) {
@@ -183,20 +238,29 @@ void solver_release_memory(void)
         }
     }
     free(solver_ctx.queue);
+    free(solver_ctx.nodes);
     free(solver_ctx.visited_states);
     free(solver_ctx.visited_hashes);
+    free(solver_ctx.visited_node_indices);
     solver_ctx.queue = NULL;
+    solver_ctx.nodes = NULL;
     solver_ctx.visited_states = NULL;
     solver_ctx.visited_hashes = NULL;
+    solver_ctx.visited_node_indices = NULL;
     solver_ctx.queue_capacity = 0;
     solver_ctx.visited_capacity = 0;
+    solver_ctx.nodes_capacity = 0;
     solver_ctx.queue_head = 0;
     solver_ctx.queue_tail = 0;
+    solver_ctx.nodes_count = 0;
 }
 
 void solver_reset(void)
 {
     solver_release_memory();
+    free(solver_ctx.solution_moves);
+    solver_ctx.solution_moves = NULL;
+    solver_ctx.solution_len = 0;
     solver_ctx.status = SOLVER_IDLE;
     solver_ctx.path_limit = 0;
     solver_ctx.searched_paths = 0;
@@ -233,12 +297,15 @@ void solver_start(miecs_world *world, int path_limit)
     solver_ctx.dynamic_bytes = (int)(sizeof(DynamicTileType) * solver_ctx.cell_count);
     solver_ctx.state_bytes = 4 + solver_ctx.dynamic_bytes + solver_ctx.bitset_bytes + solver_ctx.bitset_bytes;
     solver_ctx.queue_capacity = (size_t)path_limit + 1;
+    solver_ctx.nodes_capacity = (size_t)path_limit + 1;
     solver_ctx.visited_capacity = solver_next_pow2((size_t)path_limit * 2 + 16);
 
-    solver_ctx.queue = (unsigned char **)calloc(solver_ctx.queue_capacity, sizeof(unsigned char *));
+    solver_ctx.queue = (int *)calloc(solver_ctx.queue_capacity, sizeof(int));
+    solver_ctx.nodes = (SolverNode *)calloc(solver_ctx.nodes_capacity, sizeof(SolverNode));
     solver_ctx.visited_states = (unsigned char **)calloc(solver_ctx.visited_capacity, sizeof(unsigned char *));
     solver_ctx.visited_hashes = (uint64_t *)calloc(solver_ctx.visited_capacity, sizeof(uint64_t));
-    if (!solver_ctx.queue || !solver_ctx.visited_states || !solver_ctx.visited_hashes) {
+    solver_ctx.visited_node_indices = (int *)calloc(solver_ctx.visited_capacity, sizeof(int));
+    if (!solver_ctx.queue || !solver_ctx.nodes || !solver_ctx.visited_states || !solver_ctx.visited_hashes || !solver_ctx.visited_node_indices) {
         solver_ctx.status = SOLVER_ERROR;
         solver_release_memory();
         return;
@@ -258,10 +325,15 @@ void solver_start(miecs_world *world, int path_limit)
         return;
     }
     solver_encode_state(initial, hero_dc->x, hero_dc->y, map_dynamic_types, map_static_activated, map_dynamic_activated);
-    solver_visited_insert(initial);
-    solver_ctx.queue[solver_ctx.queue_tail++] = initial;
+    solver_ctx.nodes[0].state = initial;
+    solver_ctx.nodes[0].parent_node = -1;
+    solver_ctx.nodes[0].move = 0;
+    solver_ctx.nodes_count = 1;
+    solver_visited_insert(initial, 0);
+    solver_ctx.queue[solver_ctx.queue_tail++] = 0;
 
     if (solver_state_is_goal(hero_dc->x, hero_dc->y, map_static_activated)) {
+        solver_build_solution(-1, 0);
         solver_ctx.status = SOLVER_TRUE;
         solver_ctx.elapsed = 0.0;
         return;
@@ -298,6 +370,7 @@ void solver_update(int max_steps)
     static const int dirs[4][2] = {
         {0, 1}, {0, -1}, {-1, 0}, {1, 0}
     };
+    static const char dir_moves[4] = {'U', 'D', 'L', 'R'};
 
     for (int step = 0; step < max_steps; ++step) {
         if (solver_ctx.queue_head >= solver_ctx.queue_tail) {
@@ -305,7 +378,8 @@ void solver_update(int max_steps)
             return;
         }
 
-        unsigned char *state = solver_ctx.queue[solver_ctx.queue_head++];
+        int current_node = solver_ctx.queue[solver_ctx.queue_head++];
+        unsigned char *state = solver_ctx.nodes[current_node].state;
         solver_decode_state(state, &hero_x, &hero_y, dynamic_curr, static_curr, dynamic_act_curr);
         solver_ctx.searched_paths++;
 
@@ -351,7 +425,9 @@ void solver_update(int max_steps)
 
             solver_recalculate_activation(dynamic_next, static_next, dynamic_act_next);
 
+            char move_char = dir_moves[d];
             if (solver_state_is_goal(new_x, new_y, static_next)) {
+                solver_build_solution(current_node, move_char);
                 solver_finish(SOLVER_TRUE);
                 return;
             }
@@ -363,13 +439,19 @@ void solver_update(int max_steps)
             }
             solver_encode_state(next_state, new_x, new_y, dynamic_next, static_next, dynamic_act_next);
 
-            if (solver_visited_insert(next_state)) {
-                if (solver_ctx.queue_tail >= solver_ctx.queue_capacity) {
-                    free(next_state);
-                    solver_finish(SOLVER_REACH_LIMIT);
-                    return;
-                }
-                solver_ctx.queue[solver_ctx.queue_tail++] = next_state;
+            if (solver_ctx.nodes_count >= solver_ctx.nodes_capacity || solver_ctx.queue_tail >= solver_ctx.queue_capacity) {
+                free(next_state);
+                solver_finish(SOLVER_REACH_LIMIT);
+                return;
+            }
+
+            int next_node = (int)solver_ctx.nodes_count;
+            if (solver_visited_insert(next_state, next_node)) {
+                solver_ctx.nodes[next_node].state = next_state;
+                solver_ctx.nodes[next_node].parent_node = current_node;
+                solver_ctx.nodes[next_node].move = move_char;
+                solver_ctx.nodes_count++;
+                solver_ctx.queue[solver_ctx.queue_tail++] = next_node;
             } else {
                 free(next_state);
             }
@@ -395,6 +477,48 @@ double solver_elapsed(void)
 int solver_searched_paths(void)
 {
     return solver_ctx.searched_paths;
+}
+
+const char *solver_solution_moves(void)
+{
+    return solver_ctx.solution_moves ? solver_ctx.solution_moves : "";
+}
+
+int solver_solution_length(void)
+{
+    return solver_ctx.solution_len;
+}
+
+const char *solver_solution_cn(void)
+{
+    static char text[8192];
+    text[0] = '\0';
+
+    const char *moves = solver_solution_moves();
+    int len = solver_solution_length();
+    if (len <= 0) {
+        return text;
+    }
+
+    size_t pos = 0;
+    for (int i = 0; i < len; ++i) {
+        const char *w = "";
+        if (moves[i] == 'U') w = "S";
+        else if (moves[i] == 'D') w = "W";
+        else if (moves[i] == 'L') w = "A";
+        else if (moves[i] == 'R') w = "D";
+        size_t wl = strlen(w);
+        if (pos + wl + 2 >= sizeof(text)) {
+            break;
+        }
+        memcpy(text + pos, w, wl);
+        pos += wl;
+        if (i + 1 < len) {
+            text[pos++] = ' ';
+        }
+    }
+    text[pos] = '\0';
+    return text;
 }
 
 #endif

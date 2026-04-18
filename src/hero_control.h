@@ -1,6 +1,7 @@
 #ifndef HERO_CONTROL_H
 #define HERO_CONTROL_H
 
+#include <raylib.h>
 #include "miecs.h"
 #include "discrete_coordinate.h"
 
@@ -25,9 +26,11 @@ void HeroControlSystem(miecs_world *world)
     miecs_entity e;
     miecs_view_begin(&it, world, 2, HeroControl_type, DiscreteCoordinate_type);
     while (miecs_view_next(&it, &e)) {
-        DiscreteCoordinate *dc = (DiscreteCoordinate *)miecs_component_get(world, e, DiscreteCoordinate_type);
-
         static bool pressed[5] = {0, 0, 0, 0, 0}; /* W, S, A, D, Z */
+        static float z_hold_time = 0.0f;
+        static float z_repeat_timer = 0.0f;
+        static bool z_repeat_blocked = false;
+        float dt = GetFrameTime();
 
         if (IsKeyDown(KEY_W) && !pressed[0]) {
             hero_try_move_vertical(world, e, -1);
@@ -46,15 +49,37 @@ void HeroControlSystem(miecs_world *world)
             pressed[3] = true;
         }
         if (IsKeyDown(KEY_Z) && !pressed[4]) {
-            hero_try_undo(world, e);
+            bool undone = hero_try_undo(world, e);
             pressed[4] = true;
+            z_hold_time = 0.0f;
+            z_repeat_timer = 0.0f;
+            z_repeat_blocked = !undone;
+        } else if (IsKeyDown(KEY_Z) && pressed[4] && !z_repeat_blocked) {
+            z_hold_time += dt;
+            if (z_hold_time >= 1.0f) {
+                z_repeat_timer += dt;
+                while (z_repeat_timer >= 0.1f) {
+                    bool undone = hero_try_undo(world, e);
+                    z_repeat_timer -= 0.2f;
+                    if (!undone) {
+                        z_repeat_blocked = true;
+                        z_repeat_timer = 0.0f;
+                        break;
+                    }
+                }
+            }
         }
 
         if (!IsKeyDown(KEY_W)) pressed[0] = false;
         if (!IsKeyDown(KEY_S)) pressed[1] = false;
         if (!IsKeyDown(KEY_A)) pressed[2] = false;
         if (!IsKeyDown(KEY_D)) pressed[3] = false;
-        if (!IsKeyDown(KEY_Z)) pressed[4] = false;
+        if (!IsKeyDown(KEY_Z)) {
+            pressed[4] = false;
+            z_hold_time = 0.0f;
+            z_repeat_timer = 0.0f;
+            z_repeat_blocked = false;
+        }
     }
 }
 

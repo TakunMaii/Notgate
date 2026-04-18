@@ -930,8 +930,8 @@ void map_load(miecs_world *world, const char *file)
     float map_target_height = window_height * 0.8f;
 
     float sprite_scale = fminf(map_target_width / map_original_width, map_target_height / map_original_height);
-    float map_origin_x = (window_width - map_original_width * sprite_scale) / 2.0f;
-    float map_origin_y = (window_height - map_original_height * sprite_scale) / 2.0f;
+    float map_origin_x = (window_width - map_original_width * sprite_scale) / 2.0f + 8.0f * sprite_scale;
+    float map_origin_y = (window_height - map_original_height * sprite_scale) / 2.0f + 8.0f * sprite_scale;
     SetDiscreteCoordinate(map_origin_x, map_origin_y, 16.0f * sprite_scale);
     {
         miecs_view_iter it;
