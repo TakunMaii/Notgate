@@ -16,5 +16,20 @@ add_executable(main
     src/main.c
 )
 
+if (WIN32)
+    target_sources(main PRIVATE app.rc)
+    set_target_properties(main PROPERTIES WIN32_EXECUTABLE TRUE)
+endif()
+
+if (EMSCRIPTEN)
+    set_target_properties(main PROPERTIES SUFFIX ".html" OUTPUT_NAME "index")
+    target_link_options(main PRIVATE
+        "-sALLOW_MEMORY_GROWTH=1"
+        "-sASYNCIFY"
+        "-sFORCE_FILESYSTEM=1"
+        "--preload-file" "${CMAKE_SOURCE_DIR}/assets@/assets"
+    )
+endif()
+
 target_link_libraries(main PRIVATE raylib)
 
