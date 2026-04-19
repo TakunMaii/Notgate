@@ -79,8 +79,8 @@ void SpriteDrawingSystemPro(miecs_world *world, float camera_x, float camera_y)
     _quick_sort(entities, 0, count - 1, world);
 
     const Color shadow_color = (Color){20, 24, 32, 120};
-    const float shadow_offset_x = 3.0f;
-    const float shadow_offset_y = 3.0f;
+    const float shadow_offset_x = 6.0f;
+    const float shadow_offset_y = 6.0f;
 
     // pass 1: draw sprite shadows
     for (int k = 0; k < count; ++k) {

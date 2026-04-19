@@ -1,12 +1,12 @@
-# Repeater and NotGate
+# NotGate
 
-This is an entry to Ludum Dare 59.
+This is an entry to Ludum Dare 59 - Signal, developed by MAII, with [raylib](https://www.raylib.com/).
 
 ## How to play
 `W/A/S/D` to move. `Z` to undo.
 
 ## Map Editing
-Put or edit your map at `assets/maps/mapxx.txt` where `xx` is a number. The maps will be loaded in order.
+Put your new maps or edit existing maps at `assets/maps/mapxx.txt` where `xx` is a number. The maps will be loaded in order.
 
 + \[space\] - nothing
 + \# - wall

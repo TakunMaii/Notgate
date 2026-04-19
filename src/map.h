@@ -178,7 +178,7 @@ void spawn_emitter_particles(miecs_world *world, int emitter_x, int emitter_y)
     float cell_size = discrete_cell_size;
     float center_x = discrete_origin_x + emitter_x * cell_size;
     float center_y = discrete_origin_y + emitter_y * cell_size;
-    float particle_radius = cell_size * 0.1f;
+    float particle_radius = cell_size * 0.07f;
     float jitter = cell_size * 0.2f;
     float speed = cell_size * 0.35f;
     Color color = (Color){95, 205, 228, 210};

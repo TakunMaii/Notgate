@@ -1,0 +1,43 @@
+=====================================================
+GAME JAM PROJECT COPYRIGHT & LICENSE AGREEMENT
+=====================================================
+
+Project Title: Notgate
+Developer: MAII
+Date: 2026/4/19
+
+1. COPYRIGHT OWNERSHIP
+All content included in this software project, including but not limited to:
+- Source code and executable binaries (.exe, .app, .html, etc.)
+- Visual assets (sprites, textures, UI elements, animations)
+- Audio assets (music, sound effects, voice clips)
+- Narrative text and design documents
+(collectively referred to as "The Assets")
+is the sole property of the Developer listed above, unless otherwise explicitly stated.
+
+2. PERMITTED USE
+This software is released for the purpose of the Ludum Dare 59 competition and for personal evaluation only.
+
+3. RESTRICTIONS
+UNLESS EXPLICITLY AUTHORIZED IN WRITING BY THE DEVELOPER, THE FOLLOWING ACTIONS ARE STRICTLY PROHIBITED:
+
+a) REPRODUCTION & REDISTRIBUTION:
+You may NOT copy, distribute, republish, or transmit any part of The Assets to any third party without permission.
+
+b) MODIFICATION & DERIVATIVE WORKS:
+You may NOT modify, adapt, remix, transform, or create derivative works based on The Assets. This includes but is not limited to altering game mechanics, editing art assets, or remixing audio tracks.
+
+c) COMMERCIAL USE:
+You may NOT use The Assets for any commercial purpose, including but not limited to:
+- Selling copies of the game or its assets.
+- Using the assets in advertisements or promotional materials.
+- Incorporating the assets into another commercial product.
+
+4. FAIR USE
+Streaming, recording, or screenshotting the game for the purposes of critique, review, news reporting, or educational commentary is permitted under standard Fair Use guidelines, provided that appropriate credit is given to the Developer.
+
+5. CONTACT
+For permission requests, please contact:
+maii_wzy@163.com
+
+=====================================================
