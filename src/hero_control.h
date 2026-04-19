@@ -60,7 +60,7 @@ void HeroControlSystem(miecs_world *world)
                 z_repeat_timer += dt;
                 while (z_repeat_timer >= 0.1f) {
                     bool undone = hero_try_undo(world, e);
-                    z_repeat_timer -= 0.2f;
+                    z_repeat_timer -= 0.1f;
                     if (!undone) {
                         z_repeat_blocked = true;
                         z_repeat_timer = 0.0f;

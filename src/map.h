@@ -143,7 +143,7 @@ void spawn_emitter_particles(miecs_world *world, int emitter_x, int emitter_y)
     float particle_radius = cell_size * 0.1f;
     float jitter = cell_size * 0.2f;
     float speed = cell_size * 0.35f;
-    Color color = (Color){173, 216, 230, 170};
+    Color color = (Color){95, 205, 228, 210};
 
     for (int i = 0; i < 6 && pc->count < MAX_PARTICLES; ++i) {
         int pick = GetRandomValue(0, 11);

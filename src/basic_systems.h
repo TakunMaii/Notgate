@@ -78,7 +78,35 @@ void SpriteDrawingSystemPro(miecs_world *world, float camera_x, float camera_y)
     // Quick sort entities by Sprite.layer
     _quick_sort(entities, 0, count - 1, world);
 
-    // draw entities in sorted order
+    const Color shadow_color = (Color){20, 24, 32, 120};
+    const float shadow_offset_x = 3.0f;
+    const float shadow_offset_y = 3.0f;
+
+    // pass 1: draw sprite shadows
+    for (int k = 0; k < count; ++k) {
+        Sprite *s = miecs_component_get(world, entities[k], Sprite_type);
+        Position *p = miecs_component_get(world, entities[k], Position_type);
+        Scale *sc = miecs_component_get(world, entities[k], Scale_type);
+        Rotation *r = miecs_component_get(world, entities[k], Rotation_type);
+        float scale = sc ? sc->scale : 1.0f;
+        float rotation = r ? r->rotationInDegrees : 0.0f;
+
+        BeginShaderMode(s->shader);
+        Rectangle sourceRec = s->sourceRec;
+        int sign = s->flipX ? -1 : 1;
+        sourceRec.width *= sign; // flip by negating width
+        Rectangle destRec = {
+            p->x - camera_x + shadow_offset_x,
+            p->y - camera_y + shadow_offset_y,
+            (float)(scale * s->sourceRec.width),
+            (float)(scale * s->sourceRec.height)
+        };
+        Vector2 origin = { scale * s->sourceRec.width * 0.5f, scale * s->sourceRec.height * 0.5f };
+        DrawTexturePro(s->texture, sourceRec, destRec, origin, rotation, shadow_color);
+        EndShaderMode();
+    }
+
+    // pass 2: draw entities in sorted order
     for (int k = 0; k < count; ++k) {
         Sprite *s = miecs_component_get(world, entities[k], Sprite_type);
         Position *p = miecs_component_get(world, entities[k], Position_type);
