@@ -52,6 +52,12 @@ Texture2D not_signal_inactive_texture = {0};
 Texture2D not_signal_active_texture = {0};
 Texture2D fixed_not_signal_inactive_texture = {0};
 Texture2D fixed_not_signal_active_texture = {0};
+Sound sfx_active = {0};
+Sound sfx_inactive = {0};
+Sound sfx_move = {0};
+Sound sfx_transport = {0};
+bool map_sounds_loaded = false;
+bool map_activation_sfx_enabled = true;
 
 typedef struct {
     int hero_x;
@@ -87,6 +93,38 @@ bool undo_stack_push(miecs_world *world, miecs_entity hero);
 void undo_stack_discard_latest(void);
 void undo_stack_clear(void);
 bool hero_try_undo(miecs_world *world, miecs_entity e);
+void map_audio_init(void);
+void map_audio_shutdown(void);
+
+void map_audio_init(void)
+{
+    if (map_sounds_loaded || !IsAudioDeviceReady()) {
+        return;
+    }
+
+    sfx_active = LoadSound("assets/sounds/active.wav");
+    sfx_inactive = LoadSound("assets/sounds/inactive.wav");
+    sfx_move = LoadSound("assets/sounds/move.wav");
+    sfx_transport = LoadSound("assets/sounds/transport.wav");
+
+    SetSoundVolume(sfx_active, sfx_active_volume);
+    SetSoundVolume(sfx_inactive, sfx_inactive_volume);
+    SetSoundVolume(sfx_move, sfx_move_volume);
+    SetSoundVolume(sfx_transport, sfx_transport_volume);
+    map_sounds_loaded = true;
+}
+
+void map_audio_shutdown(void)
+{
+    if (!map_sounds_loaded) {
+        return;
+    }
+    UnloadSound(sfx_active);
+    UnloadSound(sfx_inactive);
+    UnloadSound(sfx_move);
+    UnloadSound(sfx_transport);
+    map_sounds_loaded = false;
+}
 
 int map_index(int x, int y)
 {
@@ -600,9 +638,15 @@ bool hero_try_move(miecs_world *world, miecs_entity e, int dx, int dy)
         return false;
     }
 
+    if (map_sounds_loaded) {
+        PlaySound(sfx_move);
+    }
     map_recalculate_activation(world);
 
     if (map_static_tiles[target_idx] == STATIC_TILE_PORTAL && map_static_activated[target_idx]) {
+        if (map_sounds_loaded) {
+            PlaySound(sfx_transport);
+        }
         map_next_level(world);
     }
     return true;
@@ -725,6 +769,22 @@ void map_recalculate_activation(miecs_world *world)
         return;
     }
 
+    int cell_count = map_width * map_height;
+    bool *prev_static_activated = (bool *)malloc(sizeof(bool) * cell_count);
+    bool *prev_dynamic_activated = (bool *)malloc(sizeof(bool) * cell_count);
+    bool has_activated = false;
+    bool has_deactivated = false;
+    bool tracking_ok = prev_static_activated && prev_dynamic_activated;
+    if (tracking_ok) {
+        memcpy(prev_static_activated, map_static_activated, sizeof(bool) * cell_count);
+        memcpy(prev_dynamic_activated, map_dynamic_activated, sizeof(bool) * cell_count);
+    } else {
+        free(prev_static_activated);
+        free(prev_dynamic_activated);
+        prev_static_activated = NULL;
+        prev_dynamic_activated = NULL;
+    }
+
     rules_recalculate_activation(
         map_width,
         map_height,
@@ -733,7 +793,43 @@ void map_recalculate_activation(miecs_world *world)
         map_static_activated,
         map_dynamic_activated);
 
+    if (tracking_ok && map_activation_sfx_enabled) {
+        for (int idx = 0; idx < cell_count; ++idx) {
+            if (static_is_activatable(map_static_tiles[idx])) {
+                bool before = prev_static_activated[idx];
+                bool after = map_static_activated[idx];
+                if (!before && after) {
+                    has_activated = true;
+                } else if (before && !after) {
+                    has_deactivated = true;
+                }
+            }
+            if (dynamic_is_activatable(map_dynamic_types[idx])) {
+                bool before = prev_dynamic_activated[idx];
+                bool after = map_dynamic_activated[idx];
+                if (!before && after) {
+                    has_activated = true;
+                } else if (before && !after) {
+                    has_deactivated = true;
+                }
+            }
+            if (has_activated && has_deactivated) {
+                break;
+            }
+        }
+    }
+    free(prev_static_activated);
+    free(prev_dynamic_activated);
+
     update_activation_visuals(world);
+    if (map_sounds_loaded) {
+        if (has_activated) {
+            PlaySound(sfx_active);
+        }
+        if (has_deactivated) {
+            PlaySound(sfx_inactive);
+        }
+    }
 }
 
 void map_load(miecs_world *world, const char *file)
@@ -943,11 +1039,15 @@ void map_load(miecs_world *world, const char *file)
         }
     }
 
+    bool previous_activation_sfx = map_activation_sfx_enabled;
+    map_activation_sfx_enabled = false;
     map_recalculate_activation(world);
+    map_activation_sfx_enabled = previous_activation_sfx;
 }
 
 void map_init(miecs_world *world)
 {
+    map_audio_init();
     map_static_tiles = NULL;
     map_static_entities = NULL;
     map_static_activated = NULL;
@@ -958,6 +1058,7 @@ void map_init(miecs_world *world)
     undo_stack_count = 0;
     undo_stack_capacity = 0;
     map_particle_spawn_timer = 0.0f;
+    map_activation_sfx_enabled = true;
     current_level = 1;
     map_load(world, "assets/maps/map1.txt");
 }

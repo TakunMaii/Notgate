@@ -34,6 +34,15 @@ static float randf(float min_v, float max_v)
 int main(void)
 {
     InitWindow(window_width, window_height, "Notgate");
+    InitAudioDevice();
+    Music bgm = {0};
+    bool bgm_loaded = false;
+    if (FileExists("assets/sounds/bgm.wav")) {
+        bgm = LoadMusicStream("assets/sounds/bgm.wav");
+        SetMusicVolume(bgm, bgm_volume);
+        PlayMusicStream(bgm);
+        bgm_loaded = true;
+    }
     SetTargetFPS(60);
     RenderTexture2D scene_target = LoadRenderTexture(window_width, window_height);
     SetTextureFilter(scene_target.texture, TEXTURE_FILTER_BILINEAR);
@@ -96,6 +105,12 @@ int main(void)
     while (!WindowShouldClose()) {
         float dt = GetFrameTime();
         ambient_time += dt;
+        if (bgm_loaded) {
+            UpdateMusicStream(bgm);
+            if (!IsMusicStreamPlaying(bgm)) {
+                PlayMusicStream(bgm);
+            }
+        }
 
         bool opened_this_frame = false;
         if (!command_visible && IsKeyPressed(KEY_SLASH)) {
@@ -257,11 +272,17 @@ int main(void)
 
     solver_reset();
     miecs_world_destroy(world);
+    map_audio_shutdown();
+    if (bgm_loaded) {
+        StopMusicStream(bgm);
+        UnloadMusicStream(bgm);
+    }
     free(ambient_squares);
     if (use_postprocess) {
         UnloadShader(postprocess_shader);
     }
     UnloadRenderTexture(scene_target);
+    CloseAudioDevice();
     CloseWindow();
     return 0;
 }
