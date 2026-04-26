@@ -3,7 +3,7 @@
 This is an entry to Ludum Dare 59 - Signal, developed by MAII, with [raylib](https://www.raylib.com/).
 
 ## How to play
-`W/A/S/D` to move. `Z` to undo.
+`W/A/S/D` to move. `Z` to undo. `R` to reset current level.
 
 ## Map Editing
 Put your new maps or edit existing maps at `assets/maps/mapxx.txt` where `xx` is a number. The maps will be loaded in order.

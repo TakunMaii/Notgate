@@ -181,6 +181,11 @@ int main(void)
             }
         }
 
+        if (!command_visible && IsKeyPressed(KEY_R)) {
+            solver_reset();
+            map_load_level(world, current_level);
+        }
+
         if (!command_visible && solver_status() != SOLVER_RUNNING) {
             HeroControlSystem(world);
         }
@@ -253,7 +258,7 @@ int main(void)
             DrawText(hint_text, 24, 62, 18, RAYWHITE);
         }
 
-        DrawText("WASD to move, Z to undo", window_width - 300, window_height - 40, 20, GRAY);
+        DrawText("WASD to move, Z to undo, R to reset", window_width - 420, window_height - 40, 20, GRAY);
 
         EndTextureMode();
 
