@@ -6,7 +6,7 @@
 #include "discrete_coordinate.h"
 
 typedef struct {
-    int __unused;
+    int unused;
 } HeroControl;
 
 miecs_component_type HeroControl_type;

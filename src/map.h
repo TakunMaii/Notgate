@@ -305,7 +305,7 @@ void hero(miecs_world *world, int x, int y)
     *dc = (DiscreteCoordinate){ .x = x, .y = y };
 
     HeroControl *hc = (HeroControl *)miecs_component_add(world, hero_entity, HeroControl_type);
-    *hc = (HeroControl){ .__unused = 0 };
+    *hc = (HeroControl){ .unused = 0 };
 
     Sprite *s = (Sprite *)miecs_component_add(world, hero_entity, Sprite_type);
     *s = (Sprite){
