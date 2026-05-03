@@ -209,6 +209,7 @@ int main(void)
         }
 
         DiscreteCoordinateSystem(world);
+        WalkAnimationSystem(world, dt);
         map_particle_effect_system(world, dt);
         ParticleUpdateSystem(world, dt);
 

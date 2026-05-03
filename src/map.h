@@ -317,7 +317,10 @@ void hero(miecs_world *world, int x, int y)
     };
 
     Scale *sc = (Scale *)miecs_component_add(world, hero_entity, Scale_type);
-    *sc = (Scale){ .scale = 2.0f };
+    *sc = (Scale){ .scale_x = 2.0f, .scale_y = 2.0f };
+
+    WalkAnimation *wa = (WalkAnimation *)miecs_component_add(world, hero_entity, WalkAnimation_type);
+    *wa = (WalkAnimation){ .is_walking = false, .timer = 0.0f, .duration = 0.15f, .amplitude = 0.3f };
 }
 
 miecs_entity wall(miecs_world *world, int x, int y)
@@ -344,7 +347,7 @@ miecs_entity wall(miecs_world *world, int x, int y)
     };
 
     Scale *sc = (Scale *)miecs_component_add(world, e, Scale_type);
-    *sc = (Scale){ .scale = 2.0f };
+    *sc = (Scale){ .scale_x = 2.0f, .scale_y = 2.0f };
     return e;
 }
 
@@ -369,7 +372,7 @@ miecs_entity portal(miecs_world *world, int x, int y)
     };
 
     Scale *sc = (Scale *)miecs_component_add(world, e, Scale_type);
-    *sc = (Scale){ .scale = 2.0f };
+    *sc = (Scale){ .scale_x = 2.0f, .scale_y = 2.0f };
     return e;
 }
 
@@ -397,7 +400,7 @@ miecs_entity fixed_signal_source(miecs_world *world, int x, int y)
     };
 
     Scale *sc = (Scale *)miecs_component_add(world, e, Scale_type);
-    *sc = (Scale){ .scale = 2.0f };
+    *sc = (Scale){ .scale_x = 2.0f, .scale_y = 2.0f };
     return e;
 }
 
@@ -422,7 +425,7 @@ miecs_entity fixed_repeater(miecs_world *world, int x, int y)
     };
 
     Scale *sc = (Scale *)miecs_component_add(world, e, Scale_type);
-    *sc = (Scale){ .scale = 2.0f };
+    *sc = (Scale){ .scale_x = 2.0f, .scale_y = 2.0f };
     return e;
 }
 
@@ -447,7 +450,7 @@ miecs_entity fixed_not_signal(miecs_world *world, int x, int y)
     };
 
     Scale *sc = (Scale *)miecs_component_add(world, e, Scale_type);
-    *sc = (Scale){ .scale = 2.0f };
+    *sc = (Scale){ .scale_x = 2.0f, .scale_y = 2.0f };
     return e;
 }
 
@@ -490,7 +493,7 @@ void dynamic_unit(miecs_world *world, int x, int y, DynamicTileType type)
     };
 
     Scale *sc = (Scale *)miecs_component_add(world, e, Scale_type);
-    *sc = (Scale){ .scale = 2.0f };
+    *sc = (Scale){ .scale_x = 2.0f, .scale_y = 2.0f };
 
     int idx = map_index(x, y);
     map_dynamic_entities[idx] = e;
@@ -636,6 +639,13 @@ bool hero_try_move(miecs_world *world, miecs_entity e, int dx, int dy)
             undo_stack_discard_latest();
         }
         return false;
+    }
+
+    // Trigger walk animation
+    WalkAnimation *wa = miecs_component_get(world, e, WalkAnimation_type);
+    if (wa) {
+        wa->is_walking = true;
+        wa->timer = 0.0f;
     }
 
     if (map_sounds_loaded) {
@@ -1035,8 +1045,14 @@ void map_load(miecs_world *world, const char *file)
         miecs_view_begin(&it, world, 2, Sprite_type, Scale_type);
         while (miecs_view_next(&it, &e)) {
             Scale *sc = (Scale *)miecs_component_get(world, e, Scale_type);
-            sc->scale = sprite_scale;
+            sc->scale_x = sprite_scale;
+            sc->scale_y = sprite_scale;
         }
+    }
+    // Update hero's walk animation base scale
+    WalkAnimation *wa = miecs_component_get(world, hero_entity, WalkAnimation_type);
+    if (wa) {
+        wa->base_scale = sprite_scale;
     }
 
     bool previous_activation_sfx = map_activation_sfx_enabled;

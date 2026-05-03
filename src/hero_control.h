@@ -9,16 +9,27 @@ typedef struct {
     int unused;
 } HeroControl;
 
+typedef struct {
+    bool is_walking;
+    float timer;
+    float duration;
+    float amplitude;
+    float base_scale;
+} WalkAnimation;
+
 miecs_component_type HeroControl_type;
+miecs_component_type WalkAnimation_type;
 
 void RegisterHeroControlComponent(miecs_world *world)
 {
     HeroControl_type = miecs_component_register(world, "HeroControl", sizeof(HeroControl));
+    WalkAnimation_type = miecs_component_register(world, "WalkAnimation", sizeof(WalkAnimation));
 }
 
 void hero_try_move_horizontal(miecs_world *world, miecs_entity e, int dx);
 void hero_try_move_vertical(miecs_world *world, miecs_entity e, int dy);
 bool hero_try_undo(miecs_world *world, miecs_entity e);
+void WalkAnimationSystem(miecs_world *world, float delta_time);
 
 void HeroControlSystem(miecs_world *world)
 {
@@ -79,6 +90,33 @@ void HeroControlSystem(miecs_world *world)
             z_hold_time = 0.0f;
             z_repeat_timer = 0.0f;
             z_repeat_blocked = false;
+        }
+    }
+}
+
+void WalkAnimationSystem(miecs_world *world, float delta_time)
+{
+    miecs_view_iter it;
+    miecs_entity e;
+    miecs_view_begin(&it, world, 2, WalkAnimation_type, Scale_type);
+    while (miecs_view_next(&it, &e)) {
+        WalkAnimation *wa = miecs_component_get(world, e, WalkAnimation_type);
+        Scale *s = miecs_component_get(world, e, Scale_type);
+
+        if (!wa->is_walking) return;
+
+        wa->timer += delta_time;
+        float progress = wa->timer / wa->duration;
+
+        // Use sine wave: X and Y are complementary to maintain roughly constant area
+        float factor = sinf(progress * 3.14159265f) * wa->amplitude;
+        s->scale_x = wa->base_scale + factor;
+        s->scale_y = wa->base_scale - factor;
+
+        if (wa->timer >= wa->duration) {
+            wa->is_walking = false;
+            s->scale_x = wa->base_scale;
+            s->scale_y = wa->base_scale;
         }
     }
 }

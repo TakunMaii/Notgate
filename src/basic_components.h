@@ -11,7 +11,8 @@ typedef struct {
 } Position;
 
 typedef struct {
-    float scale;
+    float scale_x;
+    float scale_y;
 } Scale;
 
 typedef struct {

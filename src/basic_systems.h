@@ -88,7 +88,8 @@ void SpriteDrawingSystemPro(miecs_world *world, float camera_x, float camera_y)
         Position *p = miecs_component_get(world, entities[k], Position_type);
         Scale *sc = miecs_component_get(world, entities[k], Scale_type);
         Rotation *r = miecs_component_get(world, entities[k], Rotation_type);
-        float scale = sc ? sc->scale : 1.0f;
+        float scale_x = sc ? sc->scale_x : 1.0f;
+        float scale_y = sc ? sc->scale_y : 1.0f;
         float rotation = r ? r->rotationInDegrees : 0.0f;
 
         BeginShaderMode(s->shader);
@@ -98,10 +99,10 @@ void SpriteDrawingSystemPro(miecs_world *world, float camera_x, float camera_y)
         Rectangle destRec = {
             p->x - camera_x + shadow_offset_x,
             p->y - camera_y + shadow_offset_y,
-            (float)(scale * s->sourceRec.width),
-            (float)(scale * s->sourceRec.height)
+            (float)(scale_x * s->sourceRec.width),
+            (float)(scale_y * s->sourceRec.height)
         };
-        Vector2 origin = { scale * s->sourceRec.width * 0.5f, scale * s->sourceRec.height * 0.5f };
+        Vector2 origin = { scale_x * s->sourceRec.width * 0.5f, scale_y * s->sourceRec.height * 0.5f };
         DrawTexturePro(s->texture, sourceRec, destRec, origin, rotation, shadow_color);
         EndShaderMode();
     }
@@ -113,16 +114,17 @@ void SpriteDrawingSystemPro(miecs_world *world, float camera_x, float camera_y)
         // sc and r may be NULL
         Scale *sc = miecs_component_get(world, entities[k], Scale_type);
         Rotation *r = miecs_component_get(world, entities[k], Rotation_type);
-        float scale = sc ? sc->scale : 1.0f;
+        float scale_x = sc ? sc->scale_x : 1.0f;
+        float scale_y = sc ? sc->scale_y : 1.0f;
         float rotation = r ? r->rotationInDegrees : 0.0f;
-        
+
         BeginShaderMode(s->shader);
         Rectangle sourceRec = s->sourceRec;
         int sign = s->flipX ? -1 : 1;
         sourceRec.width *= sign; // flip by negating width
         Rectangle destRec = { p->x - camera_x, p->y - camera_y,
-            (float)(scale * s->sourceRec.width), (float)(scale * s->sourceRec.height) };
-        Vector2 origin = { scale * s->sourceRec.width * 0.5f, scale * s->sourceRec.height * 0.5f };
+            (float)(scale_x * s->sourceRec.width), (float)(scale_y * s->sourceRec.height) };
+        Vector2 origin = { scale_x * s->sourceRec.width * 0.5f, scale_y * s->sourceRec.height * 0.5f };
         DrawTexturePro(s->texture, sourceRec, destRec, origin, rotation, WHITE);
         EndShaderMode();
     }
