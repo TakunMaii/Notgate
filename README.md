@@ -2,6 +2,16 @@
 
 This is an entry to Ludum Dare 59 - Signal, developed by MAII, with [raylib](https://www.raylib.com/).
 
+## Quick Start
+```bash
+$ mkdir build
+$ cd build
+$ cmake .. # -DGLFW_BUILD_WAYLAND=ON if you use wayland instead of x11
+$ make
+$ cd ..
+$ ./build/main
+```
+
 ## How to play
 `W/A/S/D` to move. `Z` to undo. `R` to reset current level.
 
