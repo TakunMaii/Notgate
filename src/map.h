@@ -10,8 +10,11 @@
 #include <string.h>
 #include <math.h>
 #include "globals.h"
+#include "mpkg.h"
+#include "mpkg_raylib.h"
 
 miecs_entity hero_entity;
+Mpkg mpkg;
 
 typedef enum {
     STATIC_TILE_EMPTY = 0,
@@ -77,12 +80,11 @@ bool level_file_exists(int level)
 {
     char file[64];
     snprintf(file, sizeof(file), "assets/maps/map%d.txt", level);
-    FILE *f = fopen(file, "r");
-    if (!f) {
-        return false;
-    }
-    fclose(f);
-    return true;
+
+    long length;
+    char *data = FetchDataFromMpkg(mpkg, file, &length);
+
+    return length > 0;
 }
 
 void map_next_level(miecs_world *world);
@@ -93,19 +95,19 @@ bool undo_stack_push(miecs_world *world, miecs_entity hero);
 void undo_stack_discard_latest(void);
 void undo_stack_clear(void);
 bool hero_try_undo(miecs_world *world, miecs_entity e);
-void map_audio_init(void);
+void map_audio_init(Mpkg mpkg);
 void map_audio_shutdown(void);
 
-void map_audio_init(void)
+void map_audio_init(Mpkg mpkg)
 {
     if (map_sounds_loaded || !IsAudioDeviceReady()) {
         return;
     }
 
-    sfx_active = LoadSound("assets/sounds/active.wav");
-    sfx_inactive = LoadSound("assets/sounds/inactive.wav");
-    sfx_move = LoadSound("assets/sounds/move.wav");
-    sfx_transport = LoadSound("assets/sounds/transport.wav");
+    sfx_active = MpkgLoadSound(mpkg, ".wav","assets/sounds/active.wav");
+    sfx_inactive = MpkgLoadSound(mpkg, ".wav","assets/sounds/inactive.wav");
+    sfx_move = MpkgLoadSound(mpkg, ".wav","assets/sounds/move.wav");
+    sfx_transport = MpkgLoadSound(mpkg, ".wav","assets/sounds/transport.wav");
 
     SetSoundVolume(sfx_active, sfx_active_volume);
     SetSoundVolume(sfx_inactive, sfx_inactive_volume);
@@ -238,34 +240,34 @@ void map_particle_effect_system(miecs_world *world, float dt)
 void ensure_activation_textures_loaded(void)
 {
     if (portal_inactive_texture.id == 0) {
-        portal_inactive_texture = LoadTexture("assets/art/portal_inactive.png");
+        portal_inactive_texture = MpkgLoadTexture(mpkg, ".png", "assets/art/portal_inactive.png");
     }
     if (portal_active_texture.id == 0) {
-        portal_active_texture = LoadTexture("assets/art/portal_active.png");
+        portal_active_texture = MpkgLoadTexture(mpkg, ".png", "assets/art/portal_active.png");
     }
     if (repeater_inactive_texture.id == 0) {
-        repeater_inactive_texture = LoadTexture("assets/art/repeater_inactive.png");
+        repeater_inactive_texture = MpkgLoadTexture(mpkg, ".png", "assets/art/repeater_inactive.png");
     }
     if (repeater_active_texture.id == 0) {
-        repeater_active_texture = LoadTexture("assets/art/repeater_active.png");
+        repeater_active_texture = MpkgLoadTexture(mpkg, ".png", "assets/art/repeater_active.png");
     }
     if (fixed_repeater_inactive_texture.id == 0) {
-        fixed_repeater_inactive_texture = LoadTexture("assets/art/fixed_repeater_inactive.png");
+        fixed_repeater_inactive_texture = MpkgLoadTexture(mpkg, ".png", "assets/art/fixed_repeater_inactive.png");
     }
     if (fixed_repeater_active_texture.id == 0) {
-        fixed_repeater_active_texture = LoadTexture("assets/art/fixed_repeater_active.png");
+        fixed_repeater_active_texture = MpkgLoadTexture(mpkg, ".png", "assets/art/fixed_repeater_active.png");
     }
     if (not_signal_inactive_texture.id == 0) {
-        not_signal_inactive_texture = LoadTexture("assets/art/not_signal_inactive.png");
+        not_signal_inactive_texture = MpkgLoadTexture(mpkg, ".png", "assets/art/not_signal_inactive.png");
     }
     if (not_signal_active_texture.id == 0) {
-        not_signal_active_texture = LoadTexture("assets/art/not_signal_active.png");
+        not_signal_active_texture = MpkgLoadTexture(mpkg, ".png", "assets/art/not_signal_active.png");
     }
     if (fixed_not_signal_inactive_texture.id == 0) {
-        fixed_not_signal_inactive_texture = LoadTexture("assets/art/fixed_not_signal_inactive.png");
+        fixed_not_signal_inactive_texture = MpkgLoadTexture(mpkg, ".png", "assets/art/fixed_not_signal_inactive.png");
     }
     if (fixed_not_signal_active_texture.id == 0) {
-        fixed_not_signal_active_texture = LoadTexture("assets/art/fixed_not_signal_active.png");
+        fixed_not_signal_active_texture = MpkgLoadTexture(mpkg, ".png", "assets/art/fixed_not_signal_active.png");
     }
 }
 
@@ -309,7 +311,7 @@ void hero(miecs_world *world, int x, int y)
 
     Sprite *s = (Sprite *)miecs_component_add(world, hero_entity, Sprite_type);
     *s = (Sprite){
-        .texture = LoadTexture("assets/art/hero.png"),
+        .texture = MpkgLoadTexture(mpkg, ".png", "assets/art/hero.png"),
         .sourceRec = (Rectangle){ 0, 0, 16, 16 },
         .layer = 0,
         .shader = LoadMaterialDefault().shader,
@@ -327,7 +329,7 @@ miecs_entity wall(miecs_world *world, int x, int y)
 {
     static Texture2D wall_texture = {0};
     if (wall_texture.id == 0) {
-        wall_texture = LoadTexture("assets/art/wall.png");
+        wall_texture = MpkgLoadTexture(mpkg, ".png", "assets/art/wall.png");
     }
 
     miecs_entity e = miecs_entity_create(world);
@@ -380,7 +382,7 @@ miecs_entity fixed_signal_source(miecs_world *world, int x, int y)
 {
     static Texture2D texture = {0};
     if (texture.id == 0) {
-        texture = LoadTexture("assets/art/fixed_signal_source.png");
+        texture = MpkgLoadTexture(mpkg, ".png", "assets/art/fixed_signal_source.png");
     }
 
     miecs_entity e = miecs_entity_create(world);
@@ -460,10 +462,10 @@ void dynamic_unit(miecs_world *world, int x, int y, DynamicTileType type)
     static Texture2D signal_source_texture = {0};
 
     if (box_texture.id == 0) {
-        box_texture = LoadTexture("assets/art/box.png");
+        box_texture = MpkgLoadTexture(mpkg, ".png", "assets/art/box.png");
     }
     if (signal_source_texture.id == 0) {
-        signal_source_texture = LoadTexture("assets/art/signal_source.png");
+        signal_source_texture = MpkgLoadTexture(mpkg, ".png", "assets/art/signal_source.png");
     }
     ensure_activation_textures_loaded();
 
@@ -847,11 +849,8 @@ void map_load(miecs_world *world, const char *file)
     undo_stack_clear();
     map_particle_spawn_timer = 0.0f;
 
-    FILE *f = fopen(file, "r");
-    if (!f) {
-        fprintf(stderr, "Failed to open map file: %s\n", file);
-        return;
-    }
+    long length;
+    char *map_data = FetchDataFromMpkg(mpkg, file, &length);
 
     if (map_static_tiles) {
         miecs_view_iter it;
@@ -882,7 +881,9 @@ void map_load(miecs_world *world, const char *file)
     int height = 0;
     int current_width = 0;
     int c;
-    while ((c = fgetc(f)) != EOF) {
+    long cp = 0;
+    while ((c = map_data[cp++]) && cp <= length) {
+
         if (c == '\r') {
             continue;
         }
@@ -904,7 +905,6 @@ void map_load(miecs_world *world, const char *file)
     }
     if (width <= 0 || height <= 0) {
         fprintf(stderr, "Failed to read map content from file: %s\n", file);
-        fclose(f);
         return;
     }
 
@@ -932,7 +932,6 @@ void map_load(miecs_world *world, const char *file)
         map_dynamic_entities = NULL;
         map_dynamic_types = NULL;
         map_dynamic_activated = NULL;
-        fclose(f);
         return;
     }
 
@@ -940,10 +939,10 @@ void map_load(miecs_world *world, const char *file)
         map_static_tiles[idx] = STATIC_TILE_EMPTY;
     }
 
-    rewind(f);
     int x = 0;
     int y = 0;
-    while ((c = fgetc(f)) != EOF && y < height) {
+    cp = 0;
+    while ((c = map_data[cp++]) && cp <= length && y < height) {
         if (c == '\r') {
             continue;
         }
@@ -1007,7 +1006,6 @@ void map_load(miecs_world *world, const char *file)
             } break;
             default: {
                 fprintf(stderr, "Unknown tile '%c' at (%d, %d) in file: %s\n", tile, x, y, file);
-                fclose(f);
                 return;
             }
         }
@@ -1027,8 +1025,6 @@ void map_load(miecs_world *world, const char *file)
             y++;
         }
     }
-
-    fclose(f);
 
     float map_original_width = map_width * 16.0f;
     float map_original_height = map_height * 16.0f;
@@ -1061,9 +1057,11 @@ void map_load(miecs_world *world, const char *file)
     map_activation_sfx_enabled = previous_activation_sfx;
 }
 
-void map_init(miecs_world *world)
+void map_init(miecs_world *world, Mpkg _mpkg)
 {
-    map_audio_init();
+    mpkg = _mpkg;
+
+    map_audio_init(mpkg);
     map_static_tiles = NULL;
     map_static_entities = NULL;
     map_static_activated = NULL;

@@ -1,4 +1,5 @@
 #define MIECS_IMPLEMENTATION
+#define MPKG_IMPLEMENTATION
 #include "miecs.h"
 #include "basic_components.h"
 #include "basic_systems.h"
@@ -14,6 +15,10 @@
 #include "map.h"
 #include "solver.h"
 #include "globals.h"
+#include "mpkg.h"
+#include "mpkg_raylib.h"
+
+Mpkg mpkg;
 
 typedef struct {
     Vector2 anchor;
@@ -33,20 +38,27 @@ static float randf(float min_v, float max_v)
 
 int main(void)
 {
+    printf("Init Raylib\n");
     InitWindow(window_width, window_height, "Notgate");
     InitAudioDevice();
+
+    printf("Init Mpkg\n");
+    mpkg = OpenMpkg("assets.pak");
+
+    printf("Init BGM\n");
     Music bgm = {0};
     bool bgm_loaded = false;
-    if (FileExists("assets/sounds/bgm.wav")) {
-        bgm = LoadMusicStream("assets/sounds/bgm.wav");
-        SetMusicVolume(bgm, bgm_volume);
-        PlayMusicStream(bgm);
-        bgm_loaded = true;
-    }
+
+    bgm = MpkgLoadMusicStream(mpkg, ".wav", "assets/sounds/bgm.wav");
+    SetMusicVolume(bgm, bgm_volume);
+    PlayMusicStream(bgm);
+    bgm_loaded = true;
+
+    printf("Init Shader\n");
     SetTargetFPS(60);
     RenderTexture2D scene_target = LoadRenderTexture(window_width, window_height);
     SetTextureFilter(scene_target.texture, TEXTURE_FILTER_BILINEAR);
-    Shader postprocess_shader = LoadShader(0, "assets/shaders/postprocess.fs");
+    Shader postprocess_shader = MpkgLoadShader(mpkg, NULL, "assets/shaders/postprocess.fs");
     bool use_postprocess = postprocess_shader.id != 0;
     int post_vignette_loc = -1;
     int post_bloom_threshold_loc = -1;
@@ -70,12 +82,14 @@ int main(void)
         }
     }
 
+    printf("Init World\n");
     miecs_world *world = miecs_world_create();
     RegisterBasicComponents(world);
     RegisterHeroControlComponent(world);
     RegisterDiscreteCoordinateComponent(world);
 
-    map_init(world);
+    printf("Init Map\n");
+    map_init(world, mpkg);
     FloatingSquare *ambient_squares = NULL;
     if (ambient_floating_square_count > 0) {
         ambient_squares = (FloatingSquare *)malloc(sizeof(FloatingSquare) * ambient_floating_square_count);
